@@ -257,28 +257,6 @@ test("cancel stored interrupted work without executing tools", async () => tempo
   await runtime.close();
 }));
 
-test("active attempt timeout aborts owned work and records a failure", async () => temporary(async (directory) => {
-  const { faux, models } = setup();
-  faux.setResponses([fauxAssistantMessage([fauxToolCall("lookup", {}, { id: "timeout-1" })], { stopReason: "toolUse" })]);
-  const tools = [defineTool({ name: "lookup", description: "Wait", parameters: Type.Object({}),
-    execute: async (_args, _api, context) => {
-      await new Promise<void>((_resolve, reject) => {
-        const abort = () => reject(new Error("aborted"));
-        context.abortSignal?.addEventListener("abort", abort, { once: true });
-        if (context.abortSignal?.aborted) abort();
-      });
-      return {};
-    } })];
-  const run = seed("Timeout");
-  // Direct runtime fixture accelerates the timeout; public definitions still require >= 1 minute.
-  run.agent.timeoutMinutes = 0.001;
-  const runtime = new Runtime(directory);
-  const result = await runtime.execute(run, { models, tools });
-  assert.equal(result.status, "failed");
-  assert.match(result.error!, /Timed out/);
-  assert.equal((await runtime.read(run.id)).status, "failed");
-  await runtime.close();
-}));
 
 test("failed delegation preserves the provider's actual error rather than blaming optional tools", async () => temporary(async (directory) => {
   const { faux, models } = setup();

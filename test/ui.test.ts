@@ -17,8 +17,8 @@ function run(name: string, status: Run["status"], extra: Partial<Run> = {}): Run
 
 test("collapsed single runs name every state rather than requiring an icon legend", () => {
   initTheme("dark", false);
-  const labels: Record<Run["status"], string> = { running: "Running", succeeded: "Done", failed: "Failed", aborted: "Cancelled", interrupted: "Interrupted" };
-  for (const status of ["running", "succeeded", "failed", "aborted", "interrupted"] as const) {
+  const labels: Record<Run["status"], string> = { running: "Running", succeeded: "Done", failed: "Failed", aborted: "Cancelled", interrupted: "Interrupted", paused: "Paused", pausing: "Pausing", "preparing-handoff": "Preparing handoff" };
+  for (const status of ["running", "succeeded", "failed", "aborted", "interrupted", "paused", "pausing", "preparing-handoff"] as const) {
     const text = clean(renderRun(run("scout", status), false, theme).render(100).join("\n"));
     assert.match(text, new RegExp(`\\b${labels[status]}\\b`), text);
   }

@@ -182,7 +182,7 @@ export default async function durableSubagent(pi: ExtensionAPI) {
       let previous: Run | undefined;
       try { previous = await runtime.read(seed.id); }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-      if (previous && !isTerminal(previous)) {
+      if (previous && !isTerminal(previous) && previous.status !== "paused") {
         const approved = approvedResumes.delete(seed.id) || pi.getFlag("subagent-resume") === seed.id;
         if (!approved && (!ctx.hasUI || !(await ctx.ui.confirm("Resume interrupted delegation?", `Run ${seed.id} will continue work in ${seed.cwd}. Previously interrupted side effects may be uncertain.`)))) {
           throw new Error(`Explicit resume approval required. In headless mode pass --subagent-resume ${seed.id}.`);
@@ -244,7 +244,7 @@ export default async function durableSubagent(pi: ExtensionAPI) {
     emitUpdate();
     const branch = ctx.sessionManager.getBranch();
     const blocks = results.map((result, index) => {
-      const body = result.status === "succeeded" ? result.output ?? result.activity : `${result.error ?? result.activity}${result.output ? `\nPartial answer:\n${result.output}` : ""}`;
+      const body = result.status === "paused" ? [result.activity, result.handoff, result.handoffLimitation].filter(Boolean).join("\n\n") : result.status === "succeeded" ? result.output ?? result.activity : `${result.error ?? result.activity}${result.output ? `\nPartial answer:\n${result.output}` : ""}`;
       const label = results.length === 1 ? `Run ${result.id} · ${result.status}` : `Step ${index + 1}/${results.length} · ${result.agent.name} · Run ${result.id} · ${result.status}`;
       const place = result.worktree ? ` · ${result.worktree.branch}` : "";
       const metadata = runMetadata(result, { billed: usageToReport(result, branch), retrieved: retrieved.has(result.id) });
@@ -257,7 +257,7 @@ export default async function durableSubagent(pi: ExtensionAPI) {
     return {
       content: [{ type: "text", text: `${blocks.join("\n\n")}${unavailable.length ? `\nUnavailable declared tools: ${unavailable.join(", ")}` : ""}${unresolved}${isolated}` }],
       details: mode === "single" && results[0] ? results[0] : { steps: results, presentation },
-      isError: results.length !== seeds.length || results.some((result) => result.status !== "succeeded"),
+      isError: results.length !== seeds.length || results.some((result) => result.status !== "succeeded" && result.status !== "paused"),
       // Pi automatically includes nested-tool usage; report only the Sub-agents' own model spend here.
       usage: usageForRuns(results, branch),
     };
@@ -325,7 +325,7 @@ export default async function durableSubagent(pi: ExtensionAPI) {
       }
       if ((details as Run | undefined)?.version === 1) {
         const run = details as Run;
-        return renderRun(run, options.expanded, theme, { active: options.isPartial && run.status === "running", state, invalidate: context.invalidate });
+        return renderRun(run, options.expanded, theme, { active: options.isPartial && ["running", "pausing", "preparing-handoff"].includes(run.status), state, invalidate: context.invalidate });
       }
       const errorText = result.content.filter((part) => part.type === "text").map((part) => clean(part.text)).join("\n");
       if (state.lastGroup?.presentation && state.lastGroup.presentation.mode !== "single") {
@@ -417,7 +417,7 @@ export default async function durableSubagent(pi: ExtensionAPI) {
       const selected = await ctx.ui.select("Durable subagents", choices);
       if (!selected) return;
       const run = runs[choices.indexOf(selected)];
-      const action = await ctx.ui.select(`${run.agent.name} · ${run.status}`, ["View result", ...(run.status === "interrupted" ? ["Resume", "Cancel"] : [])]);
+      const action = await ctx.ui.select(`${run.agent.name} · ${run.status}`, ["View result", ...(run.status === "interrupted" ? ["Resume", "Cancel"] : run.status === "paused" ? ["Cancel"] : [])]);
       if (action === "View result") {
         // Display-only: never inject a stored answer into the parent's model context.
         pi.appendEntry("durable-subagent-result", run);

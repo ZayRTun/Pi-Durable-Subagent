@@ -8,6 +8,10 @@ import { fauxProvider, fauxAssistantMessage, fauxToolCall } from "../../node_mod
 export default function tuiFixture(pi: ExtensionAPI) {
   const directory = process.env.DURABLE_TUI_FIXTURE;
   if (!directory) throw new Error("Disposable TUI fixture directory required");
+  if (process.env.DURABLE_TUI_PAUSE === "1") {
+    const timer = globalThis.setTimeout;
+    globalThis.setTimeout = ((callback: (...args: unknown[]) => void, delay?: number, ...args: unknown[]) => timer(callback, delay === 60000 ? 1800 : delay === 48000 ? 1400 : delay, ...args)) as typeof setTimeout;
+  }
   const emit = (event: string, details: unknown) => appendFileSync(join(directory, "events.jsonl"), JSON.stringify({ event, details }) + "\n");
   const faux = fauxProvider({ provider: "tui-local" });
   faux.setResponses(Array.from({ length: 200 }, () => (context) => {
@@ -19,7 +23,7 @@ export default function tuiFixture(pi: ExtensionAPI) {
       if (task.includes("baseline")) return fauxAssistantMessage([fauxToolCall("baseline_clip", {}, { id: "baseline" })], { stopReason: "toolUse" });
       const items = ["scout", "worker", "reviewer"].map((agent) => ({ agent, task: `Inspect the retry policy and preserve the original error on exhaustion. Verify the timeout behavior and report the relevant project findings for ${agent}.` }));
       const args = task.includes("parallel") ? { tasks: items, worktree: true } : task.includes("chain") ? { chain: items } : task.includes("ordered") ? { tasks: items } : { agent: "worker", task: "Inspect the retry policy and preserve the original error on exhaustion. Verify the timeout behavior and report the relevant project findings. " + task };
-      return fauxAssistantMessage([fauxToolCall("subagent", args, { id: `preview-${faux.state.callCount}` })], { stopReason: "toolUse" });
+      return fauxAssistantMessage([fauxToolCall("subagent", { ...args, ...(task.includes("pause") ? { timeoutMinutes: 1 } : {}) }, { id: `preview-${faux.state.callCount}` })], { stopReason: "toolUse" });
     }
     const completed = context.messages.filter((message) => message.role === "toolResult").length;
     if (completed < 3) return fauxAssistantMessage([fauxToolCall("tui_read", { path: join(directory, `sample-${completed}.txt`) }, { id: `read-${completed}` })], { stopReason: "toolUse" });
