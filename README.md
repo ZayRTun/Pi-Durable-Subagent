@@ -2,6 +2,12 @@
 
 A minimal in-process Pi 1.0 extension for blocking delegation to named agents, with persistent Sub-agent conversations and explicit recovery. Built on `@earendil-works/pi-durable`, not on a third-party subagent extension.
 
+## Repository and issue tracker
+
+The standalone repository is [ZayRTun/Pi-Durable-Subagent](https://github.com/ZayRTun/Pi-Durable-Subagent). Its production starting point is tagged `baseline-current`.
+
+The [supervised Delegation spec](https://github.com/ZayRTun/Pi-Durable-Subagent/issues/1) and implementation tickets live in this repository. The spec describes future behavior, not capabilities already supported by this baseline. See the [local spec](specs/supervised-delegation.md) and [issue tracker conventions](docs/agents/issue-tracker.md).
+
 ## Try it without changing your setup
 
 ```sh
