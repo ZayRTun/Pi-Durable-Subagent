@@ -86,7 +86,10 @@ Durable does not discover or require other extensions. Operators may explicitly 
 YAML frontmatter:
 
 - Required: `name`, `description`, explicit `tools` list (CSV or YAML array). A definition without a `tools` list is rejected rather than granted every tool, so a packaged definition that declares none is shadowed by an operator copy that declares one.
-- Optional: `model` (`provider/model`), `thinking`, `timeoutMinutes` (1–480, default 30), `color` (named badge color or six-digit hex).
+- Optional: `model` (`provider/model`), `thinking`, `timeoutMinutes` (optional, 1–480; omitted means no deadline), `color` (named badge color or six-digit hex).
+
+Execution has no implicit deadline. The parent can pass `timeoutMinutes: N` (1–480 minutes) or `timeoutMinutes: null` to explicitly remove a deadline. Either choice overrides the Agent definition's optional default; omission uses that default, or no deadline when the Agent omits it. In `tasks` and `chain`, the call policy is a default and a step may override it, including with `null`. Existing requests remain blocking. This allowance limits child execution; it is separate from a supervision wait, which returns parent control without ending child work. No supervision wait parameter is exposed by the blocking interface.
+
 - Model and thinking inherit independently from the parent when not declared. Every Sub-agent model request also receives its stable run ID as `sessionId`, including compaction, for provider routing/session affinity (required by OpenCode Go).
 - Cost follows the effective thinking level. This is the largest lever available without changing the extension. Measured on real work in a Laravel repository, `low` cost 26% to 63% less than an inherited `high` for read-only reconnaissance and for ticket implementation, with correctness unchanged across six runs for each. For review, detection held at every level but the single under-graded finding came from `low`. Suggested starting policy: `low` for scout and worker, `medium` for reviewer and researcher. The extension does not choose for you. See [the evaluation](benchmarks/EVALUATION.md).
 - Definitions/instructions are snapshotted for a run. Editing a definition affects new delegations, not an existing run's role.
@@ -193,7 +196,7 @@ No daemon or remote runner is included. Chains, ordered batches, and explicitly 
 
 Records are retained until manually removed. Close all Pi processes using this storage before deleting old run directories. Removing records destroys their recovery/history. Stored prompts, outputs, paths, and tool transcripts may contain sensitive data. The extension does not copy provider credentials into metadata, but sensitive data returned by tools/providers or included in instructions may still be persisted. Storage directories are private and metadata files use mode 0600 where supported. The default location is covered by this repository's existing session-data ignore rule.
 
-Cancellation/timeouts are cooperative: a third-party tool that ignores abort signals can delay shutdown. An in-process extension cannot safely force-kill such a tool. Runtime timeouts apply per active execution attempt, not wall-clock time while Pi is closed.
+Cancellation/explicit execution deadlines are cooperative: a third-party tool that ignores abort signals can delay shutdown. An in-process extension cannot safely force-kill such a tool. Runtime timeouts apply per active execution attempt, not wall-clock time while Pi is closed.
 
 ## Verification
 
