@@ -145,7 +145,7 @@ export default async function durableSubagent(pi: ExtensionAPI) {
         const branch = named ? (request.steps.length === 1 ? named : `${named}-${index + 1}`) : undefined;
         const label = `${id.slice(0, 10)}${request.steps.length > 1 ? `-${index + 1}` : ""}`;
         const worktree = request.worktree ? await createWorktree(ctx.cwd, { label, ...(branch ? { branch } : {}), ...(request.worktree.base ? { base: request.worktree.base } : {}) }) : undefined;
-        seeds.push({ version: 1, id, sessionId, agent, task: step.task, timeoutMinutes: step.timeoutMinutes !== undefined ? step.timeoutMinutes : agent.timeoutMinutes ?? null,
+        seeds.push({ version: 1, id, sessionId, agent, task: step.task, ...(step.handoffRetryPolicy ? { handoffRetryPolicy: step.handoffRetryPolicy } : {}), timeoutMinutes: step.timeoutMinutes !== undefined ? step.timeoutMinutes : agent.timeoutMinutes ?? null,
           cwd: worktree?.path ?? ctx.cwd, model: resolved.model, ...(resolved.pool ? { role: resolved.pool } : {}),
           ...(worktree ? { worktree: { path: worktree.path, branch: worktree.branch } } : {}),
           thinking: agent.thinking ?? ctx.thinkingLevel ?? pi.getThinkingLevel(),
@@ -267,18 +267,21 @@ export default async function durableSubagent(pi: ExtensionAPI) {
   }
 
   const timeoutPolicy = Type.Optional(Type.Unsafe<number | null>({ type: ["number", "null"], minimum: 1, maximum: 480, description: "Execution allowance in minutes; null explicitly removes the deadline. Overrides Agent default. Omitted uses Agent default, otherwise no deadline. This is not a supervision wait duration." }));
+  const handoffRetryPolicy = Type.Optional(Type.Union([Type.Literal("bounded"), Type.Literal("unlimited")], { description: "Handoff transient retry policy; default bounded allows three retries. Unlimited remains cancellable and session-owned." }));
   const parameters = Type.Object({
     agent: Type.Optional(Type.String({ description: "Named agent for a new delegation" })),
     task: Type.Optional(Type.String({ minLength: 1, maxLength: 200000, description: "Self-contained task, including necessary context" })),
     model: Type.Optional(Type.String({ description: "Exact provider/model-id, task:<pool name>, or inherit-parent" })),
     role: Type.Optional(Type.String({ description: "Named model pool to resolve the model from" })),
     timeoutMinutes: timeoutPolicy,
+    handoffRetryPolicy,
     tasks: Type.Optional(Type.Array(Type.Object({
       agent: Type.Optional(Type.String({ description: "Named agent for this step" })),
       task: Type.String({ description: "Self-contained task for this step" }),
       model: Type.Optional(Type.String({ description: "Exact provider/model-id for this step" })),
       role: Type.Optional(Type.String({ description: "Model pool for this step" })),
       timeoutMinutes: timeoutPolicy,
+      handoffRetryPolicy,
     }), { minItems: 1, maxItems: MAX_STEPS, description: "Several steps, each recorded as its own run. agent, role, and model on the call are defaults for steps that omit them. Without worktree they run one after another." })),
     chain: Type.Optional(Type.Array(Type.Object({
       agent: Type.Optional(Type.String({ description: "Named agent for this step" })),
@@ -286,6 +289,7 @@ export default async function durableSubagent(pi: ExtensionAPI) {
       model: Type.Optional(Type.String({ description: "Exact provider/model-id for this step" })),
       role: Type.Optional(Type.String({ description: "Model pool for this step" })),
       timeoutMinutes: timeoutPolicy,
+      handoffRetryPolicy,
     }), { minItems: 1, maxItems: MAX_STEPS, description: "Sequential steps where each step receives the previous step's answer. Runs in the caller's directory." })),
     worktree: Type.Optional(Type.Union([
       Type.Boolean(),

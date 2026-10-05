@@ -8,6 +8,7 @@ export interface DelegationStep {
   task: string;
   /** Parent execution policy, distinct from any future supervision wait. null means no deadline. */
   timeoutMinutes?: number | null;
+  handoffRetryPolicy?: "bounded" | "unlimited";
   model?: ModelRef;
   pool?: string;
   /** Ask for the caller's own model explicitly, which some playbooks spell `inherit-parent` or `auto`. */
@@ -19,8 +20,8 @@ export type DelegationRequest =
   | { kind: "delegate"; steps: DelegationStep[]; mode: "steps" | "chain"; worktree?: { branch?: string; base?: string } };
 
 const RUN_ID = /^[a-f0-9]{32}$/;
-const ACCEPTED = ["agent", "task", "tasks", "chain", "model", "role", "worktree", "cloud_base_branch", "resume", "timeoutMinutes", "reassessment"];
-const STEP_KEYS = ["agent", "task", "model", "role", "timeoutMinutes"];
+const ACCEPTED = ["agent", "task", "tasks", "chain", "model", "role", "worktree", "cloud_base_branch", "resume", "timeoutMinutes", "reassessment", "handoffRetryPolicy"];
+const STEP_KEYS = ["agent", "task", "model", "role", "timeoutMinutes", "handoffRetryPolicy"];
 const INHERIT = new Set(["inherit-parent", "auto"]);
 export const MAX_STEPS = 8;
 
@@ -35,6 +36,7 @@ export function parseModelRef(value: unknown): ModelRef {
 
 interface Selection {
   timeoutMinutes?: number | null;
+  handoffRetryPolicy?: "bounded" | "unlimited";
   agent?: string;
   model?: ModelRef;
   pool?: string;
@@ -43,6 +45,10 @@ interface Selection {
 
 function parseSelection(source: Record<string, unknown>, prefix: string): Selection {
   const selection: Selection = {};
+  if (source.handoffRetryPolicy !== undefined) {
+    if (source.handoffRetryPolicy !== "bounded" && source.handoffRetryPolicy !== "unlimited") throw new Error(`${prefix}handoffRetryPolicy must be bounded or unlimited`);
+    selection.handoffRetryPolicy = source.handoffRetryPolicy;
+  }
   if (source.timeoutMinutes !== undefined) {
     const value = source.timeoutMinutes;
     if (value !== null && (typeof value !== "number" || !Number.isFinite(value) || value < 1 || value > 480)) {
@@ -92,8 +98,9 @@ function parseSteps(raw: unknown, defaults: Selection, label: string): Delegatio
     const model = selection.model ?? defaults.model;
     const pool = selection.pool ?? defaults.pool;
     const inherit = selection.inherit ?? defaults.inherit;
+    const handoffRetryPolicy = selection.handoffRetryPolicy ?? defaults.handoffRetryPolicy;
     const timeoutMinutes = selection.timeoutMinutes !== undefined ? selection.timeoutMinutes : defaults.timeoutMinutes;
-    return { agent, task: parseTask(source, prefix), ...(timeoutMinutes !== undefined ? { timeoutMinutes } : {}), ...(model ? { model } : {}), ...(pool ? { pool } : {}), ...(inherit ? { inherit } : {}) };
+    return { agent, task: parseTask(source, prefix), ...(handoffRetryPolicy ? { handoffRetryPolicy } : {}), ...(timeoutMinutes !== undefined ? { timeoutMinutes } : {}), ...(model ? { model } : {}), ...(pool ? { pool } : {}), ...(inherit ? { inherit } : {}) };
   });
 }
 
@@ -162,7 +169,7 @@ export function parseDelegationRequest(args: Record<string, unknown>): Delegatio
     return { kind: "delegate", steps: parseSteps(args.tasks, defaults, "tasks"), mode: "steps", ...(worktree ? { worktree } : {}) };
   }
   if (!defaults.agent || typeof args.task !== "string" || !args.task.trim()) throw new Error("A new delegation requires agent and task");
-  const step: DelegationStep = { agent: defaults.agent, task: args.task,
+  const step: DelegationStep = { agent: defaults.agent, task: args.task, ...(defaults.handoffRetryPolicy ? { handoffRetryPolicy: defaults.handoffRetryPolicy } : {}),
     ...(defaults.timeoutMinutes !== undefined ? { timeoutMinutes: defaults.timeoutMinutes } : {}),
     ...(defaults.model ? { model: defaults.model } : {}), ...(defaults.pool ? { pool: defaults.pool } : {}), ...(defaults.inherit ? { inherit: true } : {}) };
   return { kind: "delegate", steps: [step], mode: "steps", ...(worktree ? { worktree } : {}) };
