@@ -16,10 +16,10 @@ export interface DelegationStep {
 
 export type DelegationRequest =
   | { kind: "resume"; runId: string }
-  | { kind: "delegate"; steps: DelegationStep[]; mode: "steps" | "chain"; worktree?: { branch?: string; base?: string } };
+  | { kind: "delegate"; steps: DelegationStep[]; mode: "steps" | "chain"; worktree?: { branch?: string; base?: string }; nonblocking?: boolean };
 
 const RUN_ID = /^[a-f0-9]{32}$/;
-const ACCEPTED = ["agent", "task", "tasks", "chain", "model", "role", "worktree", "cloud_base_branch", "resume", "timeoutMinutes"];
+const ACCEPTED = ["agent", "task", "tasks", "chain", "model", "role", "worktree", "cloud_base_branch", "resume", "timeoutMinutes", "nonblocking"];
 const STEP_KEYS = ["agent", "task", "model", "role", "timeoutMinutes"];
 const INHERIT = new Set(["inherit-parent", "auto"]);
 export const MAX_STEPS = 8;
@@ -141,6 +141,8 @@ export function parseDelegationRequest(args: Record<string, unknown>): Delegatio
     }
     return { kind: "resume", runId: args.resume };
   }
+  if (args.nonblocking !== undefined && typeof args.nonblocking !== "boolean") throw new Error("nonblocking must be boolean");
+  if (args.nonblocking && (args.tasks !== undefined || args.chain !== undefined)) throw new Error("Nonblocking start currently requires one task; no work is queued");
   const defaults = parseSelection(args, "");
   const worktree = parseWorktree(args);
   if (args.chain !== undefined) {
@@ -158,5 +160,5 @@ export function parseDelegationRequest(args: Record<string, unknown>): Delegatio
   const step: DelegationStep = { agent: defaults.agent, task: args.task,
     ...(defaults.timeoutMinutes !== undefined ? { timeoutMinutes: defaults.timeoutMinutes } : {}),
     ...(defaults.model ? { model: defaults.model } : {}), ...(defaults.pool ? { pool: defaults.pool } : {}), ...(defaults.inherit ? { inherit: true } : {}) };
-  return { kind: "delegate", steps: [step], mode: "steps", ...(worktree ? { worktree } : {}) };
+  return { kind: "delegate", steps: [step], mode: "steps", ...(args.nonblocking ? { nonblocking: true } : {}), ...(worktree ? { worktree } : {}) };
 }
