@@ -294,3 +294,28 @@ test("rejects unsafe run identifiers", async () => {
   const runtime = new Runtime(tmpdir());
   await assert.rejects(runtime.read("../../outside"), /Invalid run ID/);
 });
+
+test("no-deadline execution keeps the host alive without a progress callback and shutdown releases it", async () => temporary(async directory => {
+  const { spawn } = await import("node:child_process");
+  const { once } = await import("node:events");
+  const { fileURLToPath } = await import("node:url");
+  const child = spawn(process.execPath, ["--experimental-strip-types", fileURLToPath(new URL("./fixtures/no-deadline-process.ts", import.meta.url)), directory], { stdio: ["ignore", "pipe", "pipe"] });
+  let output = "", errors = "";
+  child.stderr.on("data", data => { errors += data; });
+  const exited = once(child, "exit");
+  try {
+    await Promise.race([
+      new Promise<void>(resolve => child.stdout.on("data", data => { output += data; if (output.includes("ready")) resolve(); })),
+      exited.then(() => { throw new Error(`Host exited before tool started: ${errors}`); }),
+    ]);
+    await new Promise<void>(resolve => setTimeout(resolve, 100));
+    assert.equal(child.exitCode, null, `Host must remain alive while owned work awaits a Promise: ${errors}`);
+    child.kill("SIGTERM");
+    const [code] = await exited;
+    assert.equal(code, 0, errors);
+    assert.match(output, /interrupted/);
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+    await exited;
+  }
+}));

@@ -14,7 +14,7 @@ export interface AgentDefinition {
   color?: string;
   model?: string;
   thinking?: typeof THINKING[number];
-  timeoutMinutes: number;
+  timeoutMinutes?: number;
 }
 
 /** Explicit allowlists are required: absent/malformed configuration never grants all tools. */
@@ -33,8 +33,8 @@ export function parseAgent(source: string): AgentDefinition {
   if (!Array.isArray(tools) || tools.some((t) => typeof t !== "string" || !t.trim())) {
     throw new Error("tools must be an explicit list of nonempty names; add one, or shadow this definition from an earlier directory");
   }
-  const timeout = data.timeoutMinutes ?? 30;
-  if (typeof timeout !== "number" || !Number.isFinite(timeout) || timeout < 1 || timeout > 480) {
+  const timeout = data.timeoutMinutes;
+  if (timeout !== undefined && (typeof timeout !== "number" || !Number.isFinite(timeout) || timeout < 1 || timeout > 480)) {
     throw new Error("timeoutMinutes must be between 1 and 480");
   }
   if (data.allowSubagents !== undefined && typeof data.allowSubagents !== "boolean") throw new Error("allowSubagents must be a boolean");
@@ -55,7 +55,7 @@ export function parseAgent(source: string): AgentDefinition {
     description: data.description,
     instructions,
     tools: declared,
-    timeoutMinutes: timeout,
+    ...(timeout !== undefined ? { timeoutMinutes: timeout } : {}),
     ...(typeof data.color === "string" ? { color: data.color } : {}),
     ...(data.model !== undefined ? { model: data.model } : {}),
     ...(data.thinking !== undefined ? { thinking: data.thinking } : {}),

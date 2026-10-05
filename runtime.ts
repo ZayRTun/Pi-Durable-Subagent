@@ -20,6 +20,8 @@ export interface Run {
   sessionId: string;
   agent: AgentDefinition;
   task: string;
+  /** Effective execution allowance; null explicitly removes the deadline. Absent on historical records. */
+  timeoutMinutes?: number | null;
   cwd: string;
   model: { provider: string; modelId: string };
   /** The requested model pool name, recorded even when it resolved to something else. */
@@ -220,14 +222,16 @@ export class Runtime {
       };
       finishActivity = () => reconcileToolDiagnostics(run.activityLog ?? [], view.value.entries.slice(-60));
       const off = view.subscribe(publish);
-      // Presentation only: no scheduler/model/tool activity, and no idle timer.
-      if (options.onUpdate) progressTimer = setInterval(publish, 1000).unref();
+      // Active execution keeps the host alive even when a tool awaits only a Promise and there
+      // is no deadline timer. This only publishes progress and is cleared on completion/shutdown.
+      progressTimer = setInterval(publish, 1000);
       unsubscribe = () => { off(); view.dispose(); };
       await save(file, run);
       options.onUpdate?.({ ...run, updatedAt: attemptStart, ...(run.activityLog ? { activityLog: run.activityLog.map((call) => ({ ...call })) } : {}) });
       options.signal?.addEventListener("abort", abort, { once: true });
       if (options.signal?.aborted) abort();
-      timer = setTimeout(() => controller.abort("timeout"), run.agent.timeoutMinutes * 60000);
+      const allowance = run.timeoutMinutes !== undefined ? run.timeoutMinutes : run.agent.timeoutMinutes;
+      if (allowance != null) timer = setTimeout(() => controller.abort("timeout"), allowance * 60000);
       const waitContext = withAbortSignal(controller.signal, context);
       if (controller.signal.aborted) throw new Error(String(controller.signal.reason));
       const submission = await root.submit({ type: "input", content: run.task, requestId: `delegation:${run.id}` }, waitContext);
@@ -250,7 +254,7 @@ export class Runtime {
       if ((error as NodeJS.ErrnoException).code === "ELOCKED") throw error;
       const reason = controller.signal.reason;
       run.status = reason === "shutdown" || reason === "lock lost" ? "interrupted" : reason === "cancelled" ? "aborted" : "failed";
-      run.error = reason === "timeout" ? `Timed out after ${run.agent.timeoutMinutes} minutes` : error instanceof Error ? error.message : String(error);
+      run.error = reason === "timeout" ? `Timed out after ${run.timeoutMinutes !== undefined ? run.timeoutMinutes : run.agent.timeoutMinutes} minutes` : error instanceof Error ? error.message : String(error);
       run.activity = run.status === "interrupted" ? "Awaiting explicit resume" : run.status === "aborted" ? "Cancelled" : "Failed";
       if (harness && run.status !== "interrupted") {
         const root = await harness.root(context);

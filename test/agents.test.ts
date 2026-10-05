@@ -156,3 +156,7 @@ test("cannot bridge tools that bypass the Sub-agent's allowlist", () => {
     tools: ["read"], unavailable: ["codemode", "tool_search", "subagent"],
   });
 });
+
+test("an Agent without an allowance has no execution deadline", () => {
+  assert.equal(parseAgent(definition()).timeoutMinutes, undefined);
+});

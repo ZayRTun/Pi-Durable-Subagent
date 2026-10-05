@@ -83,3 +83,19 @@ test("rejects malformed requests with a boundary-level error", () => {
   assert.throws(() => parseDelegationRequest({ agent: "scout", task: "Inspect", model: "no-slash" }), /provider\/model-id/);
   assert.throws(() => parseDelegationRequest({ agent: "scout", task: "Inspect", model: "/model" }), /nonempty parts/);
 });
+
+test("execution allowance defaults and step overrides preserve explicit no deadline", () => {
+  assert.deepEqual(parseDelegationRequest({ agent: "scout", timeoutMinutes: 5, tasks: [{ task: "A" }, { task: "B", timeoutMinutes: null }, { task: "C", timeoutMinutes: 2 }] }),
+    { kind: "delegate", mode: "steps", steps: [{ agent: "scout", task: "A", timeoutMinutes: 5 }, { agent: "scout", task: "B", timeoutMinutes: null }, { agent: "scout", task: "C", timeoutMinutes: 2 }] });
+  assert.deepEqual(parseDelegationRequest({ agent: "scout", timeoutMinutes: null, chain: [{ task: "A" }, { task: "B", timeoutMinutes: 1 }] }),
+    { kind: "delegate", mode: "chain", steps: [{ agent: "scout", task: "A", timeoutMinutes: null }, { agent: "scout", task: "B", timeoutMinutes: 1 }] });
+});
+
+test("malformed execution policies are rejected before a Delegation can be started", () => {
+  for (const timeoutMinutes of [0, -1, 481, NaN, Infinity, "30", false, {}, []]) {
+    assert.throws(() => parseDelegationRequest({ agent: "scout", task: "A", timeoutMinutes }), /timeoutMinutes must be/);
+    assert.throws(() => parseDelegationRequest({ agent: "scout", tasks: [{ task: "A", timeoutMinutes }] }), /timeoutMinutes must be/);
+  }
+  assert.throws(() => parseDelegationRequest({ resume: "a".repeat(32), timeoutMinutes: null }), /resume cannot be combined/);
+  assert.throws(() => parseDelegationRequest({ agent: "scout", task: "A", waitSeconds: 60 }), /Unknown parameter waitSeconds/);
+});

@@ -6,6 +6,8 @@ export interface ModelRef {
 export interface DelegationStep {
   agent: string;
   task: string;
+  /** Parent execution policy, distinct from any future supervision wait. null means no deadline. */
+  timeoutMinutes?: number | null;
   model?: ModelRef;
   pool?: string;
   /** Ask for the caller's own model explicitly, which some playbooks spell `inherit-parent` or `auto`. */
@@ -17,8 +19,8 @@ export type DelegationRequest =
   | { kind: "delegate"; steps: DelegationStep[]; mode: "steps" | "chain"; worktree?: { branch?: string; base?: string } };
 
 const RUN_ID = /^[a-f0-9]{32}$/;
-const ACCEPTED = ["agent", "task", "tasks", "chain", "model", "role", "worktree", "cloud_base_branch", "resume"];
-const STEP_KEYS = ["agent", "task", "model", "role"];
+const ACCEPTED = ["agent", "task", "tasks", "chain", "model", "role", "worktree", "cloud_base_branch", "resume", "timeoutMinutes"];
+const STEP_KEYS = ["agent", "task", "model", "role", "timeoutMinutes"];
 const INHERIT = new Set(["inherit-parent", "auto"]);
 export const MAX_STEPS = 8;
 
@@ -32,6 +34,7 @@ export function parseModelRef(value: unknown): ModelRef {
 }
 
 interface Selection {
+  timeoutMinutes?: number | null;
   agent?: string;
   model?: ModelRef;
   pool?: string;
@@ -40,6 +43,13 @@ interface Selection {
 
 function parseSelection(source: Record<string, unknown>, prefix: string): Selection {
   const selection: Selection = {};
+  if (source.timeoutMinutes !== undefined) {
+    const value = source.timeoutMinutes;
+    if (value !== null && (typeof value !== "number" || !Number.isFinite(value) || value < 1 || value > 480)) {
+      throw new Error(`${prefix}timeoutMinutes must be null (no deadline) or a number between 1 and 480`);
+    }
+    selection.timeoutMinutes = value as number | null;
+  }
   if (source.agent !== undefined) {
     if (typeof source.agent !== "string" || !source.agent.trim()) throw new Error(`${prefix}agent must be a nonempty name`);
     selection.agent = source.agent.trim();
@@ -82,7 +92,8 @@ function parseSteps(raw: unknown, defaults: Selection, label: string): Delegatio
     const model = selection.model ?? defaults.model;
     const pool = selection.pool ?? defaults.pool;
     const inherit = selection.inherit ?? defaults.inherit;
-    return { agent, task: parseTask(source, prefix), ...(model ? { model } : {}), ...(pool ? { pool } : {}), ...(inherit ? { inherit } : {}) };
+    const timeoutMinutes = selection.timeoutMinutes !== undefined ? selection.timeoutMinutes : defaults.timeoutMinutes;
+    return { agent, task: parseTask(source, prefix), ...(timeoutMinutes !== undefined ? { timeoutMinutes } : {}), ...(model ? { model } : {}), ...(pool ? { pool } : {}), ...(inherit ? { inherit } : {}) };
   });
 }
 
@@ -145,6 +156,7 @@ export function parseDelegationRequest(args: Record<string, unknown>): Delegatio
   }
   if (!defaults.agent || typeof args.task !== "string" || !args.task.trim()) throw new Error("A new delegation requires agent and task");
   const step: DelegationStep = { agent: defaults.agent, task: args.task,
+    ...(defaults.timeoutMinutes !== undefined ? { timeoutMinutes: defaults.timeoutMinutes } : {}),
     ...(defaults.model ? { model: defaults.model } : {}), ...(defaults.pool ? { pool: defaults.pool } : {}), ...(defaults.inherit ? { inherit: true } : {}) };
   return { kind: "delegate", steps: [step], mode: "steps", ...(worktree ? { worktree } : {}) };
 }
