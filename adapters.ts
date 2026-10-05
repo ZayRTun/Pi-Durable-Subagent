@@ -31,7 +31,8 @@ export function bridgeModels(registry: Pick<ModelRegistry, "find" | "getAll" | "
 }
 
 /**
- * Only call tools during a live Pi tool invocation; never retain this context after the run.
+ * Call through the live owning Pi runtime, preserving host permissions/hooks. Detached execution
+ * retains the context only until the awaited session shutdown; every call supplies its own signal.
  * `nested` is offered only to a definition that asks to delegate, and only while depth remains.
  */
 export function bridgeTools(agent: AgentDefinition, ctx: ExtensionToolContext, nested?: NestedDelegation): ToolRegistration[] {

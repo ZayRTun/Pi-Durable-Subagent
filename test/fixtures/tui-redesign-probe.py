@@ -20,7 +20,7 @@ parser.add_argument('extension', type=Path)
 parser.add_argument('--width', type=int, default=80)
 parser.add_argument('--theme', choices=['dark', 'light'], default='dark')
 parser.add_argument('--mode', choices=['regular', 'fullscreen'], default='fullscreen')
-parser.add_argument('--scenario', choices=['single', 'ordered', 'chain', 'parallel', 'failure', 'cancel', 'cancel-chain', 'pause', 'baseline'], default='chain')
+parser.add_argument('--scenario', choices=['single', 'ordered', 'chain', 'parallel', 'failure', 'cancel', 'cancel-chain', 'pause', 'baseline', 'supervised', 'supervised-pause'], default='chain')
 a = parser.parse_args()
 root, extension = a.root.resolve(), a.extension.resolve()
 assert root.name.startswith('durable-tui-'), 'Disposable durable-tui-* directory required'
@@ -47,8 +47,9 @@ raw = bytearray()
 decoder = codecs.getincrementaldecoder('utf-8')('replace')
 
 env = dict(os.environ, TERM='xterm-256color', COLORTERM='truecolor', PI_CODING_AGENT_DIR=str(root/'config'), PI_OFFLINE='1', PI_SKIP_VERSION_CHECK='1', PI_TELEMETRY='0', PI_SUBAGENT_AGENTS=str(root/'agents'), PI_SUBAGENT_STORAGE=str(root/'runs'), DURABLE_TUI_FIXTURE=str(root))
-if a.scenario == "pause": env["DURABLE_TUI_PAUSE"] = "1"
-args = ['pi', '--offline', '--no-extensions', '--no-skills', '--no-prompt-templates', '--no-themes', '--no-context-files', '--no-approve', '-e', str(extension/'index.ts'), '-e', str(extension/'test/fixtures/tui-redesign.ts'), '--provider', 'tui-local', '--model', 'faux-1', '--thinking', 'off', '--tools', 'subagent,baseline_clip,tui_read,tui_wait', '--session-dir', str(root/'sessions'), '--tui-mode', a.mode]
+if a.scenario.startswith("supervised"): env["DURABLE_TUI_SUPERVISED"] = "1"
+if "pause" in a.scenario: env["DURABLE_TUI_PAUSE"] = "1"
+args = ['pi', '--offline', '--no-extensions', '--no-skills', '--no-prompt-templates', '--no-themes', '--no-context-files', '--no-approve', '-e', str(extension/'index.ts'), '-e', str(extension/'test/fixtures/tui-redesign.ts'), '--provider', 'tui-local', '--model', 'faux-1', '--thinking', 'off', '--tools', 'subagent,subagent_cancel,subagent_status,subagent_wait,baseline_clip,tui_read,tui_wait', '--session-dir', str(root/'sessions'), '--tui-mode', a.mode]
 master, slave = pty.openpty()
 fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', rows, cols, 0, 0))
 process = subprocess.Popen(args, cwd=root, env=env, stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
@@ -161,7 +162,51 @@ try:
     os.write(master,(a.scenario+'\r').encode())
     drain(1.3)
     initial,checks=capture('running-collapsed')
-    if a.scenario == 'baseline':
+    if a.scenario.startswith('supervised'):
+        assert 'Offline fixture complete.' in initial, 'Parent must finish while child tool waits'
+        workerrows=[y for y,line in enumerate(screen) if 'worker (' in ''.join(line)]
+        assert len(workerrows)>=2, 'Transcript and sticky execution should both appear'
+        sticky_y=workerrows[-1]
+        assert 'Running' in ''.join(screen[sticky_y+1])
+        frames=[]
+        for _ in range(3):
+            drain(.13);frames.append(''.join(screen[sticky_y]))
+        assert len(set(frames))>1, 'Sticky spinner advances while parent is idle'
+        os.write(master,b'\x0f');drain(.15)
+        expanded,_=capture('sticky-expanded')
+        assert expanded.count('Current tool')>=2,'Ctrl+O must expand sticky and transcript'
+        # Scroll the transcript without moving the composer sibling.
+        if a.mode=='fullscreen':
+            os.write(master,b'\x1b[5~');drain(.1)
+            scrolled,_=capture('sticky-scroll')
+            assert 'Current tool' in scrolled and 'npm test -- retry-policy' in scrolled
+        os.write(master,b'\x0f');drain(.15)
+        if a.mode=='fullscreen':
+            y=max(y for y,line in enumerate(screen) if 'worker (' in ''.join(line));x=''.join(screen[y]).index('worker')+1
+            os.write(master,f'\x1b[<0;{x};{y+1}M\x1b[<0;{x};{y+1}m'.encode());drain(.15)
+            clicked,_=capture('sticky-click')
+            assert clicked.count('Current tool')==1, 'Sticky mouse header expands its own row'
+        for newwidth in (120,80,a.width):
+            if newwidth != cols:
+                cols=newwidth;screen=[[' ']*cols for _ in range(rows)];backgrounds=[[None]*cols for _ in range(rows)];r=c=0
+                fcntl.ioctl(master,termios.TIOCSWINSZ,struct.pack('HHHH',rows,cols,0,0));os.kill(process.pid,signal.SIGWINCH)
+            drain(.15)
+            resized,checks=capture(f'sticky-resize-{newwidth}')
+            assert 'Running' in resized or 'Pausing' in resized
+            assert checks and all(item['background'] is None and item['leftBackground'] is None for item in checks)
+            if a.mode=='fullscreen':assert resized.count('Current tool')==1,'Mouse expansion persists across progress and resize'
+        if a.scenario == 'supervised-pause':
+            drain(10)
+            paused,_=capture('sticky-paused')
+            assert 'Paused' in paused and 'Handoff' in paused,'Safely paused detached work stays visible'
+        os.write(master,b'cancel supervised\r');drain(1)
+        cancelled,_=capture('sticky-removed')
+        # Cached start remains in transcript; the sticky sibling is entirely removed.
+        assert cancelled.count('worker (')==1, 'Cancelled execution removes the complete sticky area'
+        assert 'Offline fixture complete.' in cancelled
+        (root/'acceptance.json').write_text(json.dumps({'scenario':a.scenario,'width':a.width,'theme':a.theme,'mode':a.mode,'parentReasoning':True,'stickyPlacement':True,'spinnerAdvanced':True,'nativeExpansion':True,'mouseExpansion':a.mode=='fullscreen','removalToBaselineSpacer':True,'paidProviderCalls':0},indent=2))
+        print(f'PASS: supervised native sticky {a.width} {a.theme} {a.mode}')
+    elif a.scenario == 'baseline':
         assert checks and any(item['background']!=item['leftBackground'] for item in checks), 'Baseline must reproduce dark ellipsis patches'
         print('RED-CAPABLE BASELINE: default-background ellipsis differs from surrounding tool background.')
     else:

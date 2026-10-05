@@ -1,7 +1,7 @@
 import { join, resolve } from "node:path";
 import { Type, type Usage } from "@earendil-works/pi-ai";
 import { getAgentDir, type ExtensionAPI, type ExtensionContext, type ExtensionToolContext } from "@earendil-works/pi-coding-agent";
-import { Container } from "@earendil-works/pi-tui";
+import { Container, MouseRegion, getKeybindings, matchesKey, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import { loadAgents } from "./agents.ts";
 import { resolveAgentDirectories } from "./definition-config.ts";
 import { bridgeModels, bridgeTools } from "./adapters.ts";
@@ -84,7 +84,56 @@ export default async function durableSubagent(pi: ExtensionAPI) {
   const storage = resolve(process.env.PI_SUBAGENT_STORAGE ?? join(getAgentDir(), "sessions", "durable-subagents"));
   const initial = await loadAgents(definitions);
   const initialConfig = await loadModelConfig(configPath);
-  let runtime = new Runtime(storage);
+  const maxActive = process.env.PI_SUBAGENT_MAX_ACTIVE === undefined ? 8 : Number(process.env.PI_SUBAGENT_MAX_ACTIVE);
+  let runtime = new Runtime(storage, { maxActive });
+  let ownerLive = true;
+  const stickyRuns = new Map<string, Run>();
+  const stickyState: RendererState = {};
+  let stickyExpanded = false;
+  let stickyRedraw: (() => void) | undefined;
+  let stickyInstalled = false;
+  let stickyDispose: (() => void) | undefined;
+  const updateSticky = (run: Run, ctx: ExtensionContext) => {
+    if (!ownerLive) return;
+    if (run.nonblocking) {
+      if (run.status === "aborted" || run.status === "interrupted") stickyRuns.delete(run.id);
+      else stickyRuns.set(run.id, run);
+    }
+    if (ctx.mode !== "tui") return;
+    if (!stickyRuns.size) {
+      if (stickyInstalled) ctx.ui.setWidget("durable-subagents", undefined);
+      stickyInstalled = false; stickyRedraw = undefined; return;
+    }
+    if (stickyInstalled) { stickyRedraw?.(); return; }
+    stickyInstalled = true;
+    ctx.ui.setWidget("durable-subagents", (tui, theme) => {
+      const redraw = () => tui.requestRender(); stickyRedraw = redraw;
+      const off = ctx.ui.onTerminalInput(data => {
+        if (getKeybindings().getKeys("app.tools.expand").length ? getKeybindings().matches(data, "app.tools.expand") : matchesKey(data, "ctrl+o")) { stickyExpanded = !stickyExpanded; stickyState.childExpanded = {}; redraw(); }
+        return undefined;
+      });
+      const timer = setInterval(redraw, 120); timer.unref();
+      let component = new Container();
+      const dispose = () => { clearInterval(timer); off(); if (stickyRedraw === redraw) stickyRedraw = undefined; };
+      stickyDispose = dispose;
+      return {
+        invalidate() { component.invalidate(); },
+        handleMouse(event: TuiMouseEvent) { return component.handleMouse(event); },
+        render(width) {
+          component = new Container();
+          for (const item of stickyRuns.values()) {
+            const expanded = stickyState.childExpanded?.[item.id] ?? stickyExpanded;
+            component.addChild(new MouseRegion(renderRun(item, expanded, theme, { active: true, state: stickyState, invalidate: redraw }), event => {
+              if (event.type !== "click" || event.button !== "left") return undefined;
+              if (event.y <= 1) { stickyState.childExpanded = { ...stickyState.childExpanded, [item.id]: !expanded }; redraw(); }
+              return { handled: true };
+            }));
+          }
+          return component.render(width);
+        }, dispose,
+      };
+    }, { placement: "aboveEditor" });
+  };
   const approvedResumes = new Set<string>();
   const interruptedRuns = new Set<string>();
   const pendingStatus = (ctx: ExtensionContext) => {
@@ -93,6 +142,7 @@ export default async function durableSubagent(pi: ExtensionAPI) {
   const observeRun = (run: Run, ctx: ExtensionContext) => {
     if (run.status === "interrupted") interruptedRuns.add(run.id); else interruptedRuns.delete(run.id);
     pendingStatus(ctx);
+    updateSticky(run, ctx);
   };
   // A TUI-only fast clock drives the running icon. It is started and stopped by delegation
   // lifecycle, never from a renderer, so no component owns a timer. One tick redraws every row
@@ -118,9 +168,11 @@ export default async function durableSubagent(pi: ExtensionAPI) {
    * chaining, and recovery behave the same at every level of a tree.
    */
   async function delegate(args: Record<string, unknown>, options: DelegateOptions): Promise<DelegationOutcome> {
-    const { ctx, signal, onUpdate } = options;
+    const { ctx, onUpdate } = options;
+    const signal = args.nonblocking === true ? undefined : options.signal;
     const sessionId = ctx.sessionManager.getSessionId();
     const request = parseDelegationRequest(args);
+    if (request.kind === "delegate" && request.nonblocking && options.nested) throw new Error("Nonblocking start must be owned by the parent session");
     const seeds: Run[] = [];
     const notes = new Map<string, string>();
     const retrieved = new Set<string>();
@@ -149,6 +201,7 @@ export default async function durableSubagent(pi: ExtensionAPI) {
           cwd: worktree?.path ?? ctx.cwd, model: resolved.model, ...(resolved.pool ? { role: resolved.pool } : {}),
           ...(worktree ? { worktree: { path: worktree.path, branch: worktree.branch } } : {}),
           thinking: agent.thinking ?? ctx.thinkingLevel ?? pi.getThinkingLevel(),
+          ...(request.nonblocking ? { nonblocking: true } : {}),
           createdAt: now, updatedAt: now, status: "running", activity: "Starting", unavailable: [] });
       }
     }
@@ -196,7 +249,7 @@ export default async function durableSubagent(pi: ExtensionAPI) {
           delegate(nestedArgs, { depth: options.depth + 1, callbackId: callId, signal: nestedSignal, ctx, nested: true,
             onUpdate: (update) => emit(update.content.map((part) => part.text).join("\n")) }),
       } : undefined;
-      const result = await runtime.execute(seed, {
+      const result = await (seed.nonblocking ? runtime.start.bind(runtime) : runtime.execute.bind(runtime))(seed, {
         recoveryApproved, continuation: request.kind === "resume" ? request.continuation : undefined,
         models: bridgeModels(ctx.modelRegistry, seed.id), tools: bridgeTools(seed.agent, ctx, nested), signal, nested: options.nested,
         onUpdate: (run) => {
@@ -213,6 +266,12 @@ export default async function durableSubagent(pi: ExtensionAPI) {
       entries[entryIndex].phase = "run";
       return result;
     };
+    if (seeds.length === 1 && seeds[0].nonblocking) {
+      try {
+        const handle = await executeSeed(seeds[0], 0);
+        return { content: [{ type: "text", text: `Nonblocking Run ${handle.id} · ${handle.status}. Work continues; inspect with subagent_status, wait with subagent_wait (default 60 seconds), or cancel with subagent_cancel.` }], details: handle, isError: handle.status === "failed", usage: undefined };
+      } finally { if (ctx.mode === "tui") stopHeartbeat(options.callbackId); }
+    }
     let results: Run[] = [];
     try {
       if (request.kind === "delegate" && request.mode === "chain") {
@@ -269,6 +328,7 @@ export default async function durableSubagent(pi: ExtensionAPI) {
   const timeoutPolicy = Type.Optional(Type.Unsafe<number | null>({ type: ["number", "null"], minimum: 1, maximum: 480, description: "Execution allowance in minutes; null explicitly removes the deadline. Overrides Agent default. Omitted uses Agent default, otherwise no deadline. This is not a supervision wait duration." }));
   const handoffRetryPolicy = Type.Optional(Type.Union([Type.Literal("bounded"), Type.Literal("unlimited")], { description: "Handoff transient retry policy; default bounded allows three retries. Unlimited remains cancellable and session-owned." }));
   const parameters = Type.Object({
+    nonblocking: Type.Optional(Type.Boolean({ description: "Explicitly return a stable execution handle while one task continues; blocking remains the default" })),
     agent: Type.Optional(Type.String({ description: "Named agent for a new delegation" })),
     task: Type.Optional(Type.String({ minLength: 1, maxLength: 200000, description: "Self-contained task, including necessary context" })),
     model: Type.Optional(Type.String({ description: "Exact provider/model-id, task:<pool name>, or inherit-parent" })),
@@ -344,6 +404,28 @@ export default async function durableSubagent(pi: ExtensionAPI) {
       }
       return renderGenericResult(errorText, options.expanded);
     },
+  });
+
+  const handleParameters = { run: Type.String({ pattern: "^[a-f0-9]{32}$", description: "Execution handle returned by subagent" }) };
+  for (const operation of ["status", "wait", "cancel"] as const) pi.registerTool({
+    name: `subagent_${operation}`, label: `Subagent ${operation}`, exposure: "model-only",
+    description: operation === "wait" ? "Wait up to 60 seconds (override waitSeconds) without stopping the child. Returns the current execution state." : `${operation === "cancel" ? "Cancel and await cleanup of" : "Inspect live progress and retained result for"} an execution owned by this session.`,
+    parameters: Type.Object({ ...handleParameters, ...(operation === "wait" ? { waitSeconds: Type.Optional(Type.Number({ minimum: 0, maximum: 3600 })) } : {}) }),
+    async execute(_id, args, signal, _update, ctx) {
+      const id = String(args.run); const sessionId = ctx.sessionManager.getSessionId();
+      await runtime.status(id, sessionId);
+      if (operation === "cancel") await runtime.cancel(id);
+      const run = operation === "wait" ? await runtime.wait(id, { sessionId, timeoutSeconds: typeof args.waitSeconds === "number" ? args.waitSeconds : undefined, signal }) : await runtime.status(id, sessionId);
+      observeRun(run, ctx);
+      return { content: [{ type: "text", text: `Run ${run.id} · ${run.status} · ${run.activity}\n${run.status === "paused" ? run.handoff ?? run.handoffLimitation ?? "" : run.output ?? run.error ?? ""}` }], details: run, isError: run.status === "failed" };
+    },
+  });
+  // Nested host calls retain their host permission path. Parent effectful calls must not race
+  // an execution that owns its workspace; unknown extension tools are conservatively effectful.
+  pi.on("tool_call", (event, ctx) => {
+    if (event.parentToolCallId || !runtime.ownsWorkspace(ctx.cwd)) return;
+    const safe = new Set(["read", "grep", "find", "ls", "subagent", "subagents_list", "subagent_status", "subagent_wait", "subagent_cancel", "worktree_list"]);
+    if (!safe.has(event.toolName)) return { block: true, reason: "Active Sub-agent owns this workspace; wait or cancel before parent writes. Use isolated worktrees for concurrent writers." };
   });
 
   pi.registerTool({
@@ -448,27 +530,36 @@ export default async function durableSubagent(pi: ExtensionAPI) {
             }
             throw error;
           }
-          interruptedRuns.delete(run.id);
-          pendingStatus(ctx);
+          observeRun(await runtime.status(run.id, ctx.sessionManager.getSessionId()), ctx);
           ctx.ui.notify("Delegation cancelled.", "info");
         }
       }
     },
   });
   pi.on("session_start", async (_event, ctx) => {
+    ownerLive = false;
     await runtime.close();
-    runtime = new Runtime(storage);
+    runtime = new Runtime(storage, { maxActive });
+    stickyDispose?.(); stickyDispose = undefined; stickyRuns.clear(); stickyInstalled = false; stickyRedraw = undefined;
+    if (ctx.mode === "tui") ctx.ui.setWidget("durable-subagents", undefined);
+    ownerLive = true;
     approvedResumes.clear();
     const runs = await runtime.list(ctx.sessionManager.getSessionId());
     interruptedRuns.clear();
-    for (const run of runs) if (run.status === "interrupted") interruptedRuns.add(run.id);
+    for (const run of runs) {
+      if (run.status === "interrupted") interruptedRuns.add(run.id);
+      if (run.nonblocking && run.status === "paused") updateSticky(run, ctx);
+    }
     pendingStatus(ctx);
     const count = interruptedRuns.size;
     if (count && ctx.hasUI) ctx.ui.notify(`${count} interrupted subagent run${count === 1 ? "" : "s"}. Use /subagents to inspect and explicitly resume.`, "info");
     const problems = [...directoryErrors, ...initial.errors.map((error) => `${error.file}: ${error.message}`), ...initialConfig.errors];
     if (problems.length && ctx.hasUI) ctx.ui.notify(problems.join("\n"), "warning");
   });
-  pi.on("session_shutdown", async () => {
+  pi.on("session_shutdown", async (_event, ctx) => {
+    ownerLive = false;
+    stickyDispose?.(); stickyDispose = undefined; stickyRuns.clear(); stickyInstalled = false; stickyRedraw = undefined;
+    if (ctx.mode === "tui") ctx.ui.setWidget("durable-subagents", undefined);
     clearInterval(heartbeat);
     heartbeat = undefined;
     rowRedraws.clear();

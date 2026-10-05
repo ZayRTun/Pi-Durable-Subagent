@@ -20,6 +20,8 @@ export interface Run {
   sessionId: string;
   agent: AgentDefinition;
   task: string;
+  /** Explicitly detached from the starting parent tool call. */
+  nonblocking?: boolean;
   /** Effective execution allowance; null explicitly removes the deadline. Absent on historical records. */
   timeoutMinutes?: number | null;
   cwd: string;
@@ -59,6 +61,8 @@ export interface ExecuteOptions {
   tools: ToolRegistration[];
   signal?: AbortSignal;
   onUpdate?: (run: Run) => void;
+  /** Admission boundary after lease acquisition and durable record persistence. */
+  onAdmitted?: (run: Run) => void;
   /**
    * A nested delegation inside an already admitted tree. The tree's root holds the workspace
    * admission, so nested runs still record and recover but do not take the workspace lock again.
@@ -92,14 +96,52 @@ function modelUsage(models: Record<string, Usage>): Usage {
   }), { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } });
 }
 
-/** One SQLite harness per delegation. No idle scheduler and no expired Pi tool context. */
+/** One SQLite harness per execution with awaited owner shutdown and no idle scheduler. */
 export class Runtime {
   readonly directory: string;
-  private active = new Map<string, { stop: () => void; done: Promise<Run>; cwd: string }>();
+  private active = new Map<string, { stop: (reason?: string) => void; done: Promise<Run>; cwd: string; sessionId: string }>();
   /** Latest in-memory snapshot per active run, so inspection shows live progress instead of the start record. */
   private live = new Map<string, Run>();
   private closing = false;
-  constructor(directory: string) { this.directory = resolve(directory); }
+  readonly maxActive: number;
+  constructor(directory: string, options: { maxActive?: number } = {}) {
+    this.directory = resolve(directory);
+    this.maxActive = options.maxActive ?? 8;
+    if (!Number.isInteger(this.maxActive) || this.maxActive < 1) throw new Error("Active capacity must be a positive integer");
+  }
+  /** Workspace ownership stays live after a detached start returns. */
+  ownsWorkspace(cwd: string): boolean { return [...this.active.values()].some(run => run.cwd === cwd); }
+  async status(id: string, sessionId: string): Promise<Run> {
+    const run = this.live.get(id) ?? await this.read(id);
+    if (run.sessionId !== sessionId) throw new Error("Run belongs to another Pi session");
+    return { ...run, ...(!terminal(run) && run.status !== "paused" && !this.active.has(id) ? { status: "interrupted" as const, activity: "Awaiting explicit resume" } : {}) };
+  }
+  /** Returns only after admission/persistence; retains an independent controller until completion. */
+  async start(seed: Run, options: ExecuteOptions): Promise<Run> {
+    let admit!: (run: Run) => void;
+    const ready = new Promise<Run>(resolve => { admit = resolve; });
+    const done = this.execute({ ...seed, nonblocking: true }, { ...options, signal: undefined, onAdmitted: run => {
+      admit(run); options.onAdmitted?.(run);
+    } });
+    // Attach rejection immediately: setup failure is reported to start; later failure is inspectable.
+    return Promise.race([ready, done]);
+  }
+  async wait(id: string, options: { sessionId: string; timeoutSeconds?: number; signal?: AbortSignal }): Promise<Run> {
+    await this.status(id, options.sessionId);
+    const seconds = options.timeoutSeconds ?? 60;
+    if (!Number.isFinite(seconds) || seconds < 0 || seconds > 3600) throw new Error("Wait duration must be between 0 and 3600 seconds");
+    const active = this.active.get(id);
+    if (!active) return this.status(id, options.sessionId);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let abort!: () => void;
+    const boundary = new Promise<void>(resolve => {
+      timer = setTimeout(resolve, seconds * 1000); abort = resolve;
+      options.signal?.addEventListener("abort", abort, { once: true });
+      if (options.signal?.aborted) resolve();
+    });
+    try { await Promise.race([active.done, boundary]); return await this.status(id, options.sessionId); }
+    finally { clearTimeout(timer); options.signal?.removeEventListener("abort", abort); }
+  }
   private path(id: string) { validateId(id); return join(this.directory, id); }
   async read(id: string): Promise<Run> {
     const value: Run = JSON.parse(await readFile(join(this.path(id), "run.json"), "utf8"));
@@ -141,12 +183,13 @@ export class Runtime {
     // Recheck after the read: another invocation may have entered or shutdown begun.
     if (this.closing) throw new Error("Runtime is shutting down");
     if (this.active.has(seed.id)) throw new Error("This run is already executing");
+    if ([...this.active.values()].filter(run => run.sessionId === seed.sessionId).length >= this.maxActive) throw new Error(`Active Sub-agent capacity ${this.maxActive}: busy; no work queued`);
     // Conservative v1: one delegation per cwd, even read-only agents may have bash. A nested run is
     // already inside an admitted tree, so it is exempt.
     if (!options.nested && [...this.active.values()].some((run) => run.cwd === seed.cwd)) throw new Error("Another delegation is using this working directory; wait for it to finish");
     const controller = new AbortController();
     const done = this.perform(seed, options, controller);
-    this.active.set(seed.id, { stop: () => controller.abort("shutdown"), done, cwd: seed.cwd });
+    this.active.set(seed.id, { stop: (reason = "shutdown") => controller.abort(reason), done, cwd: seed.cwd, sessionId: seed.sessionId });
     try { return await done; }
     finally { this.active.delete(seed.id); this.live.delete(seed.id); }
   }
@@ -298,6 +341,7 @@ export class Runtime {
       progressTimer = setInterval(publish, 1000);
       unsubscribe = () => { off(); view.dispose(); };
       await save(file, run);
+      options.onAdmitted?.({ ...run });
       options.onUpdate?.({ ...run, updatedAt: attemptStart, ...(run.activityLog ? { activityLog: run.activityLog.map((call) => ({ ...call })) } : {}) });
       options.signal?.addEventListener("abort", abort, { once: true });
       if (options.signal?.aborted) abort();
@@ -422,7 +466,8 @@ export class Runtime {
     return run;
   }
   async cancel(id: string): Promise<void> {
-    if (this.active.has(id)) throw new Error("Use Pi's cancellation control to stop an active delegation");
+    const active = this.active.get(id);
+    if (active) { active.stop("cancelled"); await active.done; return; }
     const directory = this.path(id);
     const release = await lockfile.lock(directory, { realpath: false, stale: 10000, retries: 0 });
     let harness: Harness | undefined;

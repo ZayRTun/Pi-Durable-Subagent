@@ -21,9 +21,14 @@ export default function tuiFixture(pi: ExtensionAPI) {
     if (parent) {
       if (context.messages.at(-1)?.role === "toolResult") return fauxAssistantMessage("Offline fixture complete.");
       if (task.includes("baseline")) return fauxAssistantMessage([fauxToolCall("baseline_clip", {}, { id: "baseline" })], { stopReason: "toolUse" });
+      if (task.includes("cancel supervised")) {
+        const start = context.messages.find(message => message.role === "toolResult" && message.toolName === "subagent");
+        const id = start?.role === "toolResult" ? (start.details as { id: string }).id : "";
+        return fauxAssistantMessage([fauxToolCall("subagent_cancel", { run: id }, { id: "cancel-background" })], { stopReason: "toolUse" });
+      }
       const items = ["scout", "worker", "reviewer"].map((agent) => ({ agent, task: `Inspect the retry policy and preserve the original error on exhaustion. Verify the timeout behavior and report the relevant project findings for ${agent}.` }));
       const args = task.includes("parallel") ? { tasks: items, worktree: true } : task.includes("chain") ? { chain: items } : task.includes("ordered") ? { tasks: items } : { agent: "worker", task: "Inspect the retry policy and preserve the original error on exhaustion. Verify the timeout behavior and report the relevant project findings. " + task };
-      return fauxAssistantMessage([fauxToolCall("subagent", { ...args, ...(task.includes("pause") ? { timeoutMinutes: 1 } : {}) }, { id: `preview-${faux.state.callCount}` })], { stopReason: "toolUse" });
+      return fauxAssistantMessage([fauxToolCall("subagent", { ...args, ...(task.includes("supervised") ? { nonblocking: true } : {}), ...(task.includes("pause") ? { timeoutMinutes: 1 } : {}) }, { id: `preview-${faux.state.callCount}` })], { stopReason: "toolUse" });
     }
     const completed = context.messages.filter((message) => message.role === "toolResult").length;
     if (completed < 3) return fauxAssistantMessage([fauxToolCall("tui_read", { path: join(directory, `sample-${completed}.txt`) }, { id: `read-${completed}` })], { stopReason: "toolUse" });
@@ -47,7 +52,7 @@ export default function tuiFixture(pi: ExtensionAPI) {
     async execute(_id, _args, signal) {
       emit("wait", {});
       await new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(() => { signal?.removeEventListener("abort", abort); resolve(); }, 2500);
+        const timer = setTimeout(() => { signal?.removeEventListener("abort", abort); resolve(); }, process.env.DURABLE_TUI_SUPERVISED === "1" ? 9000 : 2500);
         const abort = () => { clearTimeout(timer); signal?.removeEventListener("abort", abort); reject(new Error("Synthetic verification cancelled.")); };
         signal?.addEventListener("abort", abort, { once: true });
         if (signal?.aborted) abort();
