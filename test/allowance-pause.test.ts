@@ -9,7 +9,7 @@ import { fauxProvider, fauxAssistantMessage, fauxToolCall } from "@earendil-work
 import { Runtime, runId, type Run } from "../runtime.ts";
 import extension from "../index.ts";
 
-for (const outcome of ["handoff", "handoff-tool", "permanent-error", "cancel", "shutdown"] as const) {
+for (const outcome of ["handoff", "continuation", "escalation", "handoff-tool", "permanent-error", "cancel", "shutdown"] as const) {
 test(`host allowance boundary: ${outcome}`, async () => {
     const directory = await mkdtemp(join(tmpdir(), "durable-policy-"));
     const policy = { agent: 1, parent: 1, effective: 1 };
@@ -97,6 +97,44 @@ test(`host allowance boundary: ${outcome}`, async () => {
       assert.equal(run.status, "paused");
       if (outcome === "permanent-error") assert.match(run.handoffLimitation!, /400 Permanent handoff failure/);
       else assert.equal(run.handoff, "Checkpoint: evidence written. Remaining: second change.");
+      if (outcome === "continuation" || outcome === "escalation") {
+        if (outcome === "escalation") {
+          // Retained fixture represents two prior pauses without another completed work tool.
+          const record = join(directory, "runs", run.id, "run.json");
+          await writeFile(record, JSON.stringify({ ...run, noProgressPauses: 2 }));
+          faux.setResponses([
+            fauxAssistantMessage([fauxToolCall("subagent", { resume: run.id, reassessment: "Revise remaining work.", timeoutMinutes: null })], { stopReason: "toolUse" }),
+            fauxAssistantMessage("Operator attention required."),
+          ]);
+          await session.prompt("Continue repeated pauses.");
+          const denied = session.messages.findLast(message => message.role === "toolResult");
+          assert.ok(denied && denied.role === "toolResult" && denied.isError);
+          assert.equal(workCalls, 1);
+          assert.equal(JSON.parse(await readFile(record, "utf8")).status, "paused");
+          loader.getExtensions().runtime.flagValues.set("subagent-resume", run.id);
+        }
+        const before = run.usage!.totalTokens;
+        faux.setResponses([
+          fauxAssistantMessage([fauxToolCall("subagent", { resume: run.id, reassessment: "Evidence exists; finish only the remaining change.", timeoutMinutes: null })], { stopReason: "toolUse" }),
+          (context: Context) => {
+            assert.ok(JSON.stringify(context).includes("policy_work"));
+            assert.match(JSON.stringify(context.messages), /Checkpoint: evidence written/);
+            return fauxAssistantMessage([fauxToolCall("policy_work", {})], { stopReason: "toolUse" });
+          },
+          fauxAssistantMessage("Remaining change complete."),
+          fauxAssistantMessage("Parent completed continuation."),
+        ]);
+        await session.prompt("Continue the remaining work after reassessment.");
+        const resumed = session.messages.findLast(message => message.role === "toolResult" && message.toolName === "subagent");
+        assert.ok(resumed && resumed.role === "toolResult");
+        const final = resumed.details as unknown as Run;
+        assert.equal(final.status, "succeeded", JSON.stringify(resumed.content));
+        assert.equal(final.id, run.id);
+        assert.equal(final.timeoutMinutes, null);
+        assert.equal(workCalls, 2, "only the single new continuation tool runs; completed original calls are not replayed");
+        assert.equal(resumed.usage!.totalTokens, final.usage!.totalTokens - before);
+        return;
+      }
       const inspector = new Runtime(join(directory, "runs"));
       assert.equal((await inspector.list(session.sessionManager.getSessionId()))[0].status, "paused", "reopening must preserve the allowance pause");
       assert.equal(run.output, undefined);

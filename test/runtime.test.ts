@@ -222,7 +222,7 @@ test("shutdown preserves pending work; reopen is paused and explicit resume reus
   assert.equal(pending[0].status, "interrupted");
   assert.equal(calls, 1);
   const changedSeed = { ...run, agent: { ...run.agent, instructions: "Changed role" } };
-  const result = await reopened.execute(changedSeed, { models, tools: [tool] });
+  const result = await reopened.execute(changedSeed, { models, tools: [tool], recoveryApproved: true });
   assert.equal(result.status, "succeeded");
   assert.equal(result.output, "Recovered answer.");
   assert.equal(calls, 2);

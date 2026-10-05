@@ -43,12 +43,12 @@ test("unsafe interrupted calls are not rerun; storage/workspace ownership preven
     const run = seed("First task");
     const active = runtime.execute(run, { models, tools });
     await ready;
-    await assert.rejects(competing.execute(run, { models, tools }), /Lock file is already being held/);
+    await assert.rejects(competing.execute(run, { models, tools, recoveryApproved: true }), /Lock file is already being held/);
     await assert.rejects(competing.execute(seed("Other task"), { models, tools }), /Lock file is already being held/);
     assert.equal(calls, 1);
     await runtime.close();
     assert.equal((await active).status, "interrupted");
-    const result = await competing.execute(run, { models, tools });
+    const result = await competing.execute(run, { models, tools, recoveryApproved: true });
     assert.equal(result.status, "succeeded");
     assert.equal(calls, 1);
     assert.match(result.output!, /verify its effect/);
