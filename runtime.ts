@@ -38,6 +38,9 @@ export interface Run {
   output?: string;
   pauseReason?: "allowance";
   handoff?: string;
+  handoffRetryPolicy?: "bounded" | "unlimited";
+  handoffRetries?: number;
+  handoffCorrected?: boolean;
   handoffLimitation?: string;
   checkpointRequestedAt?: number;
   /** Unique tool calls across this run's history, reconstructed from durable entries on recovery. */
@@ -143,10 +146,14 @@ export class Runtime {
     let persist = false;
     let harness: Harness | undefined;
     let unsubscribe: (() => void) | undefined;
+    let stopConversation: (() => void) | undefined;
+    let conversationStopped: Promise<void> | undefined;
     let finishActivity: (() => void) | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let checkpointTimer: ReturnType<typeof setTimeout> | undefined;
     let pauseRequested = false;
+    let preparingHandoff = false;
+    let priorHandoffRetries = 0;
     let activeWorkTools = 0;
     let publishPhase = () => {};
     let pauseConfiguration: Promise<void> | undefined;
@@ -196,13 +203,25 @@ export class Runtime {
       } }));
       registry.install(defineExtension({ name: "pi-tools", tools: workTools }));
       harness = await Harness.open(await openNodeSqliteStorage(join(directory, "agent.sqlite")), { models: options.models, registry,
-        settings: { toolExecution: "sequential", retry: { maxRetries: 2 } } }, context);
+        // Only the durable SDK owns transient retries. Provider-internal retries are disabled.
+        // Settings are resolved afresh by the installed SDK for every failed generation.
+        settings: { toolExecution: "sequential", stream: { maxRetries: 0 }, get retry() {
+          return { maxRetries: preparingHandoff ? run.handoffRetryPolicy === "unlimited" ? Infinity : Math.max(0, 3 - priorHandoffRetries) : 2 };
+        } } }, context);
       const instructions = subagentInstructions(run.agent, run.cwd, options.tools.map((tool) => tool.name), run.unavailable);
       const root = await harness.root(context, { agent: {
         model: run.model, thinkingLevel: run.thinking,
         tools: workTools, cwd: run.cwd,
         instructions,
       } });
+      // Aborting a submission wait alone does not stop SDK-owned retry work.
+      stopConversation = () => {
+        // Ordinary work shutdown is suspended by harness.close for explicit recovery.
+        // Tool-free handoff has no recoverable work invocation and must stop retries now.
+        if (preparingHandoff) { conversationStopped = root.abort(context); void conversationStopped.catch(() => {}); }
+      };
+      controller.signal.addEventListener("abort", stopConversation, { once: true });
+      if (controller.signal.aborted) stopConversation();
       // Reconfigure only the loadout, not the frozen role/model/task on resume.
       await root.configure({ tools: workTools, instructions }, context);
       // Scan history once so resuming cannot count old live slots again, even after compaction
@@ -220,6 +239,7 @@ export class Runtime {
         if (controller.signal.aborted) return;
         const live = view.value.docs["pi.live"] as LiveState | undefined;
         const calls = live?.tools;
+        if (preparingHandoff && live?.generation?.retry) run.handoffRetries = priorHandoffRetries + live.generation.attempt;
         const ledger = view.value.docs["pi.usage"] as Partial<UsageState> | undefined;
         if (ledger?.models) run.usage = modelUsage(ledger.models);
         const argsById = collectToolArguments(view.value.entries.slice(-120));
@@ -287,8 +307,24 @@ export class Runtime {
         run.status = "preparing-handoff";
         run.activity = "Preparing tool-free handoff";
         publish();
+        preparingHandoff = true;
+        run.handoffRetries = 0;
+        run.handoffCorrected = false;
         const handoff = await root.submit({ type: "input", content: "Execution is paused. Produce a final tool-free handoff: completed progress, unfinished task, workspace state, and limitations. Do not claim the task is complete.", requestId: `handoff:${run.id}` }, waitContext);
         settled = await handoff.wait(waitContext);
+        if (settled.status === "done" && settled.type === "input" && settled.answer) {
+          const entry = await root.commit(tx => tx.entry(AssistantEntry, settled.answer!), context);
+          const message = entry?.model?.[0] as AssistantMessage | undefined;
+          const text = message?.content.flatMap(part => part.type === "text" ? [part.text] : []).join("") ?? "";
+          if (!text.trim() && message?.stopReason !== "error" && message?.stopReason !== "aborted") {
+            run.handoffCorrected = true;
+            priorHandoffRetries = run.handoffRetries ?? 0;
+            run.activity = "Correcting empty handoff";
+            publish();
+            const correction = await root.submit({ type: "input", content: "Your handoff was empty. Provide a brief textual checkpoint with completed progress, unfinished work, workspace state, and limitations. Use no tools and do not continue the task.", requestId: `handoff-correction:${run.id}` }, waitContext);
+            settled = await correction.wait(waitContext);
+          }
+        }
       }
       if (settled.status !== "done" || settled.type !== "input" || !settled.answer) {
         const entries = await root.entries({}, 20, undefined, context);
@@ -328,6 +364,8 @@ export class Runtime {
       clearTimeout(checkpointTimer);
       clearInterval(progressTimer);
       options.signal?.removeEventListener("abort", abort);
+      if (stopConversation) controller.signal.removeEventListener("abort", stopConversation);
+      await conversationStopped?.catch(() => {});
       finishActivity?.();
       unsubscribe?.();
       try {

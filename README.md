@@ -74,6 +74,8 @@ Every delegation records its execution state:
 - **Aborted** — deliberately cancelled; cancellation does not undo completed effects.
 - **Interrupted** — the owning session closed or ownership was lost. Reopening leaves it stopped, and recovery requires explicit approval.
 
+Handoff preparation uses up to three transient retries with exponential backoff and one corrective turn for empty text. Permanent errors stop immediately; exhausted or empty handoffs preserve Paused with a limitation and recorded usage. Pass `handoffRetryPolicy: "unlimited"` explicitly to remove the transient retry ceiling; cancellation and session shutdown still stop preparation. The policy may be set on a call or overridden per step. Handoff retries retain workspace ownership until safely paused.
+
 For an allowance, a checkpoint is requested at 80% of the work period. The host closes tool admission at expiry; prompt instructions alone do not enforce this boundary. A stuck tool stays Pausing until it finishes or cancellation stops it. The expanded native row shows the complete task, current/retained activity, and handoff using the existing layout. A handoff is separate from the final task answer.
 
 ## Agent definitions
