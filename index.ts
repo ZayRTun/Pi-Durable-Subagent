@@ -178,8 +178,8 @@ export default async function durableSubagent(pi: ExtensionAPI) {
     const retrieved = new Set<string>();
     if (request.kind === "resume") {
       const seed = await runtime.read(request.runId);
-      if (seed.sessionId !== sessionId || seed.cwd !== ctx.cwd) throw new Error("Run belongs to another Pi session or working directory");
-      if (isTerminal(seed)) retrieved.add(seed.id);
+      if (seed.sessionId !== sessionId || seed.cwd !== ctx.cwd && !seed.worktree) throw new Error("Run belongs to another Pi session or working directory");
+      if (seed.status === "succeeded" || seed.status === "aborted" || (seed.status === "paused" && !request.continuation)) retrieved.add(seed.id);
       seeds.push(seed);
     } else {
       const loaded = await loadAgents(definitions);
@@ -197,7 +197,7 @@ export default async function durableSubagent(pi: ExtensionAPI) {
         const branch = named ? (request.steps.length === 1 ? named : `${named}-${index + 1}`) : undefined;
         const label = `${id.slice(0, 10)}${request.steps.length > 1 ? `-${index + 1}` : ""}`;
         const worktree = request.worktree ? await createWorktree(ctx.cwd, { label, ...(branch ? { branch } : {}), ...(request.worktree.base ? { base: request.worktree.base } : {}) }) : undefined;
-        seeds.push({ version: 1, id, sessionId, agent, task: step.task, timeoutMinutes: step.timeoutMinutes !== undefined ? step.timeoutMinutes : agent.timeoutMinutes ?? null,
+        seeds.push({ version: 1, id, sessionId, agent, task: step.task, ...(step.handoffRetryPolicy ? { handoffRetryPolicy: step.handoffRetryPolicy } : {}), timeoutMinutes: step.timeoutMinutes !== undefined ? step.timeoutMinutes : agent.timeoutMinutes ?? null,
           cwd: worktree?.path ?? ctx.cwd, model: resolved.model, ...(resolved.pool ? { role: resolved.pool } : {}),
           ...(worktree ? { worktree: { path: worktree.path, branch: worktree.branch } } : {}),
           thinking: agent.thinking ?? ctx.thinkingLevel ?? pi.getThinkingLevel(),
@@ -235,11 +235,13 @@ export default async function durableSubagent(pi: ExtensionAPI) {
       let previous: Run | undefined;
       try { previous = await runtime.read(seed.id); }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-      if (previous && !isTerminal(previous) && previous.status !== "paused") {
+      let recoveryApproved = false;
+      if (previous && previous.status !== "succeeded" && previous.status !== "aborted" && (previous.status !== "paused" || Boolean(request.kind === "resume" && request.continuation && (previous.noProgressPauses ?? 0) >= 2))) {
         const approved = approvedResumes.delete(seed.id) || pi.getFlag("subagent-resume") === seed.id;
-        if (!approved && (!ctx.hasUI || !(await ctx.ui.confirm("Resume interrupted delegation?", `Run ${seed.id} will continue work in ${seed.cwd}. Previously interrupted side effects may be uncertain.`)))) {
+        if (!approved && (!ctx.hasUI || !(await ctx.ui.confirm(previous.status === "paused" ? "Repeated pauses without useful progress: approve revised plan?" : "Recover stopped delegation?", `Run ${seed.id} will continue work in ${seed.cwd}. Previously interrupted side effects may be uncertain.`)))) {
           throw new Error(`Explicit resume approval required. In headless mode pass --subagent-resume ${seed.id}.`);
         }
+        recoveryApproved = true;
       }
       const nested = options.depth < MAX_DEPTH ? {
         prefix: seed.id, parameters, description: nestedDescription,
@@ -248,6 +250,7 @@ export default async function durableSubagent(pi: ExtensionAPI) {
             onUpdate: (update) => emit(update.content.map((part) => part.text).join("\n")) }),
       } : undefined;
       const result = await (seed.nonblocking ? runtime.start.bind(runtime) : runtime.execute.bind(runtime))(seed, {
+        recoveryApproved, continuation: request.kind === "resume" ? request.continuation : undefined,
         models: bridgeModels(ctx.modelRegistry, seed.id), tools: bridgeTools(seed.agent, ctx, nested), signal, nested: options.nested,
         onUpdate: (run) => {
           observeRun(run, ctx);
@@ -263,7 +266,7 @@ export default async function durableSubagent(pi: ExtensionAPI) {
       entries[entryIndex].phase = "run";
       return result;
     };
-    if (request.kind === "delegate" && request.nonblocking) {
+    if (seeds.length === 1 && seeds[0].nonblocking) {
       try {
         const handle = await executeSeed(seeds[0], 0);
         return { content: [{ type: "text", text: `Nonblocking Run ${handle.id} · ${handle.status}. Work continues; inspect with subagent_status, wait with subagent_wait (default 60 seconds), or cancel with subagent_cancel.` }], details: handle, isError: handle.status === "failed", usage: undefined };
@@ -323,6 +326,7 @@ export default async function durableSubagent(pi: ExtensionAPI) {
   }
 
   const timeoutPolicy = Type.Optional(Type.Unsafe<number | null>({ type: ["number", "null"], minimum: 1, maximum: 480, description: "Execution allowance in minutes; null explicitly removes the deadline. Overrides Agent default. Omitted uses Agent default, otherwise no deadline. This is not a supervision wait duration." }));
+  const handoffRetryPolicy = Type.Optional(Type.Union([Type.Literal("bounded"), Type.Literal("unlimited")], { description: "Handoff transient retry policy; default bounded allows three retries. Unlimited remains cancellable and session-owned." }));
   const parameters = Type.Object({
     nonblocking: Type.Optional(Type.Boolean({ description: "Explicitly return a stable execution handle while one task continues; blocking remains the default" })),
     agent: Type.Optional(Type.String({ description: "Named agent for a new delegation" })),
@@ -330,12 +334,14 @@ export default async function durableSubagent(pi: ExtensionAPI) {
     model: Type.Optional(Type.String({ description: "Exact provider/model-id, task:<pool name>, or inherit-parent" })),
     role: Type.Optional(Type.String({ description: "Named model pool to resolve the model from" })),
     timeoutMinutes: timeoutPolicy,
+    handoffRetryPolicy,
     tasks: Type.Optional(Type.Array(Type.Object({
       agent: Type.Optional(Type.String({ description: "Named agent for this step" })),
       task: Type.String({ description: "Self-contained task for this step" }),
       model: Type.Optional(Type.String({ description: "Exact provider/model-id for this step" })),
       role: Type.Optional(Type.String({ description: "Model pool for this step" })),
       timeoutMinutes: timeoutPolicy,
+      handoffRetryPolicy,
     }), { minItems: 1, maxItems: MAX_STEPS, description: "Several steps, each recorded as its own run. agent, role, and model on the call are defaults for steps that omit them. Without worktree they run one after another." })),
     chain: Type.Optional(Type.Array(Type.Object({
       agent: Type.Optional(Type.String({ description: "Named agent for this step" })),
@@ -343,19 +349,21 @@ export default async function durableSubagent(pi: ExtensionAPI) {
       model: Type.Optional(Type.String({ description: "Exact provider/model-id for this step" })),
       role: Type.Optional(Type.String({ description: "Model pool for this step" })),
       timeoutMinutes: timeoutPolicy,
+      handoffRetryPolicy,
     }), { minItems: 1, maxItems: MAX_STEPS, description: "Sequential steps where each step receives the previous step's answer. Runs in the caller's directory." })),
     worktree: Type.Optional(Type.Union([
       Type.Boolean(),
       Type.Object({ branch: Type.Optional(Type.String({ description: "Branch name for the first step" })), base: Type.Optional(Type.String({ description: "Commit or ref to check out" })) }),
     ], { description: "true gives every step its own git checkout and runs them concurrently. A checkout holds the base commit, so it never includes uncommitted changes." })),
     cloud_base_branch: Type.Optional(Type.String({ description: "Accepted as the checkout base, spelled the way swarm playbooks spell it" })),
+    reassessment: Type.Optional(Type.String({ description: "Progress and remaining-work reassessment required with resume plus a fresh timeoutMinutes (or null) to continue allowance-paused work" })),
     resume: Type.Optional(Type.String({ pattern: "^[a-f0-9]{32}$", description: "Existing run ID to explicitly resume or retrieve" })),
   });
 
   pi.registerTool({
     name: "subagent", label: "Subagent", exposure: "model-only",
     renderShell: "self",
-    description: `Delegate a self-contained task with {agent, task}, run several steps with {tasks: [...]} or {chain: [...]}, optionally forcing a different model with {model} or a pool with {role}, or resume/retrieve an existing delegation with {resume: runId}. Available agents: ${initial.agents.map((agent) => `${agent.name}: ${agent.description}`).join("; ")}. Fresh context; same working directory. Steps without {worktree: true} run one after another in the caller's directory; with it, each step gets its own git checkout and they run concurrently. One delegation per directory at a time, and nesting is bounded. Never resume interrupted work without the user's explicit permission.`,
+    description: `Delegate a self-contained task with {agent, task}, run several steps with {tasks: [...]} or {chain: [...]}, optionally forcing a different model with {model} or a pool with {role}, or resume/retrieve an existing delegation with {resume: runId}. Available agents: ${initial.agents.map((agent) => `${agent.name}: ${agent.description}`).join("; ")}. Fresh context; same working directory. Steps without {worktree: true} run one after another in the caller's directory; with it, each step gets its own git checkout and they run concurrently. One delegation per directory at a time, and nesting is bounded. To continue allowance-paused work, provide resume, a nonempty reassessment, and a fresh timeoutMinutes or null. Repeated pauses without tool progress require operator attention. Never recover interrupted or failed work without the user's explicit permission.`,
     parameters,
     async execute(toolCallId, args, signal, onUpdate, ctx) {
       return delegate(args as Record<string, unknown>, { depth: 0, callbackId: toolCallId, signal, ctx, nested: false, onUpdate });
@@ -499,7 +507,7 @@ export default async function durableSubagent(pi: ExtensionAPI) {
       const selected = await ctx.ui.select("Durable subagents", choices);
       if (!selected) return;
       const run = runs[choices.indexOf(selected)];
-      const action = await ctx.ui.select(`${run.agent.name} · ${run.status}`, ["View result", ...(run.status === "interrupted" ? ["Resume", "Cancel"] : run.status === "paused" ? ["Cancel"] : [])]);
+      const action = await ctx.ui.select(`${run.agent.name} · ${run.status}`, ["View result", ...((run.status === "interrupted" || run.status === "failed") ? ["Resume", "Cancel"] : run.status === "paused" ? ["Continue", "Cancel"] : [])]);
       if (action === "View result") {
         // Display-only: never inject a stored answer into the parent's model context.
         pi.appendEntry("durable-subagent-result", run);
@@ -508,6 +516,8 @@ export default async function durableSubagent(pi: ExtensionAPI) {
           approvedResumes.add(run.id);
           pi.sendUserMessage(`I explicitly approve resuming durable subagent run ${run.id}. Call subagent with {"resume":"${run.id}"}; do not create a new delegation.`, { deliverAs: "followUp" });
         }
+      } else if (action === "Continue") {
+        pi.sendUserMessage(`Reassess the completed progress and useful remaining work for durable subagent run ${run.id}. Continue within its original scope by calling subagent with {"resume":"${run.id}","reassessment":"<your assessment>","timeoutMinutes":<fresh allowance or null>}. Preserve completed side effects.`, { deliverAs: "followUp" });
       } else if (action === "Cancel") {
         if (await ctx.ui.confirm("Cancel delegation?", "This stops pending work; it does not undo completed filesystem changes or external actions.")) {
           try {
@@ -537,7 +547,10 @@ export default async function durableSubagent(pi: ExtensionAPI) {
     approvedResumes.clear();
     const runs = await runtime.list(ctx.sessionManager.getSessionId());
     interruptedRuns.clear();
-    for (const run of runs) if (run.status === "interrupted") interruptedRuns.add(run.id);
+    for (const run of runs) {
+      if (run.status === "interrupted") interruptedRuns.add(run.id);
+      if (run.nonblocking && run.status === "paused") updateSticky(run, ctx);
+    }
     pendingStatus(ctx);
     const count = interruptedRuns.size;
     if (count && ctx.hasUI) ctx.ui.notify(`${count} interrupted subagent run${count === 1 ? "" : "s"}. Use /subagents to inspect and explicitly resume.`, "info");

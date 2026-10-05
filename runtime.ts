@@ -40,8 +40,16 @@ export interface Run {
   output?: string;
   pauseReason?: "allowance";
   handoff?: string;
+  handoffRetryPolicy?: "bounded" | "unlimited";
+  handoffRetries?: number;
+  handoffCorrected?: boolean;
   handoffLimitation?: string;
   checkpointRequestedAt?: number;
+  executionAttempt?: number;
+  interruptedPhase?: RunStatus;
+  noProgressPauses?: number;
+  pauseToolCount?: number;
+  recoveryHistory?: { error?: string; status: RunStatus; approvedAt: number }[];
   /** Unique tool calls across this run's history, reconstructed from durable entries on recovery. */
   toolCount?: number;
   activityLog?: { callId: string; name: string; status: string; output?: string; summary?: string; uncertain?: boolean; failed?: boolean }[];
@@ -60,6 +68,8 @@ export interface ExecuteOptions {
    * admission, so nested runs still record and recover but do not take the workspace lock again.
    */
   nested?: boolean;
+  continuation?: { reassessment: string; timeoutMinutes: number | null };
+  recoveryApproved?: boolean;
 }
 const context = BACKGROUND_CONTEXT;
 const terminal = (run: Run) => isTerminal(run);
@@ -161,7 +171,14 @@ export class Runtime {
     catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
     if (cached) {
       if (cached.sessionId !== seed.sessionId || cached.cwd !== seed.cwd || cached.task !== seed.task) throw new Error("Run identity does not match this delegation");
-      if (terminal(cached) || cached.status === "paused") return cached;
+      if (options.continuation && cached.status !== "paused") throw new Error("Only an allowance-paused run can be continued");
+      if (cached.status === "aborted" || cached.status === "succeeded" || (cached.status === "failed" && !options.recoveryApproved)) return cached;
+      if (cached.status === "paused") {
+        if (!options.continuation) return cached;
+        const choice = options.continuation;
+        if (!choice.reassessment.trim() || (choice.timeoutMinutes !== null && (!Number.isFinite(choice.timeoutMinutes) || choice.timeoutMinutes < 1 || choice.timeoutMinutes > 480))) throw new Error("Continuation requires reassessment and a fresh allowance or null");
+        if ((cached.noProgressPauses ?? 0) >= 2 && !options.recoveryApproved) throw new Error("Repeated allowance pauses without useful tool progress require operator reassessment; stop and revise the plan");
+      } else if (!options.recoveryApproved) throw new Error("Explicit resume approval required");
     }
     // Recheck after the read: another invocation may have entered or shutdown begun.
     if (this.closing) throw new Error("Runtime is shutting down");
@@ -186,10 +203,14 @@ export class Runtime {
     let persist = false;
     let harness: Harness | undefined;
     let unsubscribe: (() => void) | undefined;
+    let stopConversation: (() => void) | undefined;
+    let conversationStopped: Promise<void> | undefined;
     let finishActivity: (() => void) | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let checkpointTimer: ReturnType<typeof setTimeout> | undefined;
     let pauseRequested = false;
+    let preparingHandoff = false;
+    let priorHandoffRetries = 0;
     let activeWorkTools = 0;
     let publishPhase = () => {};
     let pauseConfiguration: Promise<void> | undefined;
@@ -209,7 +230,7 @@ export class Runtime {
       catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
       if (run.sessionId !== seed.sessionId || run.cwd !== seed.cwd || run.task !== seed.task) throw new Error("Run identity does not match this delegation");
       identityValid = true;
-      if (terminal(run)) return run;
+      if (run.status === "aborted" || run.status === "succeeded") return run;
       priorToolCount = run.toolCount ?? 0;
       if (!options.nested) {
         const canonicalCwd = await realpath(run.cwd);
@@ -219,12 +240,24 @@ export class Runtime {
           onCompromised: () => controller.abort("lock lost") });
       }
       persist = true;
+      const continuing = run.status === "paused" && options.continuation;
+      const failedRecovery = run.status === "failed";
+      const handoffRecovery = run.status === "interrupted" && run.interruptedPhase === "preparing-handoff";
+      if (continuing || failedRecovery || handoffRecovery) {
+        run = { ...run, executionAttempt: (run.executionAttempt ?? 0) + 1 };
+        if (continuing) {
+          run.timeoutMinutes = continuing.timeoutMinutes;
+          if (options.recoveryApproved) run.noProgressPauses = 0;
+        }
+        if (failedRecovery) run.recoveryHistory = [...(run.recoveryHistory ?? []), { error: run.error, status: run.status, approvedAt: Date.now() }];
+      }
+      const attempt = run.executionAttempt ?? 0;
       if (!options.models.getModel(run.model.provider, run.model.modelId)) throw new Error(`Model unavailable: ${run.model.provider}/${run.model.modelId}`);
       run = { ...run, status: "running", error: undefined, activity: "Starting", unavailable: run.agent.tools.filter((name) => !options.tools.some((tool) => tool.name === name)) };
       const registry = createRegistry();
       // Dispatch admission is checked even for calls already emitted in a model tool batch.
       // Removing the offered tools alone cannot revoke such an already planned call.
-      const workTools = options.tools.map(tool => ({ ...tool, execute: async (...args: Parameters<typeof tool.execute>) => {
+      const workTools = options.tools.filter(tool => run.agent.tools.includes(tool.name)).map(tool => ({ ...tool, execute: async (...args: Parameters<typeof tool.execute>) => {
         if (pauseRequested || controller.signal.aborted) throw new Error("Execution allowance ended; new work tools are prohibited");
         activeWorkTools++;
         try { return await tool.execute(...args); }
@@ -239,13 +272,25 @@ export class Runtime {
       } }));
       registry.install(defineExtension({ name: "pi-tools", tools: workTools }));
       harness = await Harness.open(await openNodeSqliteStorage(join(directory, "agent.sqlite")), { models: options.models, registry,
-        settings: { toolExecution: "sequential", retry: { maxRetries: 2 } } }, context);
+        // Only the durable SDK owns transient retries. Provider-internal retries are disabled.
+        // Settings are resolved afresh by the installed SDK for every failed generation.
+        settings: { toolExecution: "sequential", stream: { maxRetries: 0 }, get retry() {
+          return { maxRetries: preparingHandoff ? run.handoffRetryPolicy === "unlimited" ? Infinity : Math.max(0, 3 - priorHandoffRetries) : 2 };
+        } } }, context);
       const instructions = subagentInstructions(run.agent, run.cwd, options.tools.map((tool) => tool.name), run.unavailable);
       const root = await harness.root(context, { agent: {
         model: run.model, thinkingLevel: run.thinking,
         tools: workTools, cwd: run.cwd,
         instructions,
       } });
+      // Aborting a submission wait alone does not stop SDK-owned retry work.
+      stopConversation = () => {
+        // Ordinary work shutdown is suspended by harness.close for explicit recovery.
+        // Tool-free handoff has no recoverable work invocation and must stop retries now.
+        if (preparingHandoff) { conversationStopped = root.abort(context); void conversationStopped.catch(() => {}); }
+      };
+      controller.signal.addEventListener("abort", stopConversation, { once: true });
+      if (controller.signal.aborted) stopConversation();
       // Reconfigure only the loadout, not the frozen role/model/task on resume.
       await root.configure({ tools: workTools, instructions }, context);
       // Scan history once so resuming cannot count old live slots again, even after compaction
@@ -263,6 +308,7 @@ export class Runtime {
         if (controller.signal.aborted) return;
         const live = view.value.docs["pi.live"] as LiveState | undefined;
         const calls = live?.tools;
+        if (preparingHandoff && live?.generation?.retry) run.handoffRetries = priorHandoffRetries + live.generation.attempt;
         const ledger = view.value.docs["pi.usage"] as Partial<UsageState> | undefined;
         if (ledger?.models) run.usage = modelUsage(ledger.models);
         const argsById = collectToolArguments(view.value.entries.slice(-120));
@@ -304,7 +350,7 @@ export class Runtime {
         checkpointTimer = setTimeout(() => {
           run.checkpointRequestedAt = Date.now();
           // Steering is consumed at a safe generation/tool boundary; it cannot stop a tool.
-          void root.submit({ type: "input", whenBusy: "steer", content: "Your execution allowance is nearing expiry. Preserve a checkpoint of progress and remaining work before the pause boundary.", requestId: `checkpoint:${run.id}` }, context).catch(() => {});
+          void root.submit({ type: "input", whenBusy: "steer", content: "Your execution allowance is nearing expiry. Preserve a checkpoint of progress and remaining work before the pause boundary.", requestId: `checkpoint:${run.id}:${attempt}` }, context).catch(() => {});
         }, allowance * 48000);
         timer = setTimeout(() => {
           pauseRequested = true;
@@ -319,7 +365,7 @@ export class Runtime {
       }
       const waitContext = withAbortSignal(controller.signal, context);
       if (controller.signal.aborted) throw new Error(String(controller.signal.reason));
-      const submission = await root.submit({ type: "input", content: run.task, requestId: `delegation:${run.id}` }, waitContext);
+      const submission = await root.submit({ type: "input", content: continuing ? `Continue the original task within its original scope. Parent reassessment: ${continuing.reassessment}. Use retained progress; do not repeat completed side effects.` : failedRecovery || handoffRecovery ? "The operator approved recovery of the original task. Review retained history and the previous failure; continue remaining work without blindly replaying the unanswered submission or completed side effects." : run.task, requestId: attempt ? `continuation:${run.id}:${attempt}` : `delegation:${run.id}` }, waitContext);
       let settled = await submission.wait(waitContext);
       // An answer settled inside the work allowance is completion; metadata/ledger commits
       // after this boundary must not turn it into an unrequested pause.
@@ -331,8 +377,24 @@ export class Runtime {
         run.status = "preparing-handoff";
         run.activity = "Preparing tool-free handoff";
         publish();
-        const handoff = await root.submit({ type: "input", content: "Execution is paused. Produce a final tool-free handoff: completed progress, unfinished task, workspace state, and limitations. Do not claim the task is complete.", requestId: `handoff:${run.id}` }, waitContext);
+        preparingHandoff = true;
+        run.handoffRetries = 0;
+        run.handoffCorrected = false;
+        const handoff = await root.submit({ type: "input", content: "Execution is paused. Produce a final tool-free handoff: completed progress, unfinished task, workspace state, and limitations. Do not claim the task is complete.", requestId: `handoff:${run.id}:${attempt}` }, waitContext);
         settled = await handoff.wait(waitContext);
+        if (settled.status === "done" && settled.type === "input" && settled.answer) {
+          const entry = await root.commit(tx => tx.entry(AssistantEntry, settled.answer!), context);
+          const message = entry?.model?.[0] as AssistantMessage | undefined;
+          const text = message?.content.flatMap(part => part.type === "text" ? [part.text] : []).join("") ?? "";
+          if (!text.trim() && message?.stopReason !== "error" && message?.stopReason !== "aborted") {
+            run.handoffCorrected = true;
+            priorHandoffRetries = run.handoffRetries ?? 0;
+            run.activity = "Correcting empty handoff";
+            publish();
+            const correction = await root.submit({ type: "input", content: "Your handoff was empty. Provide a brief textual checkpoint with completed progress, unfinished work, workspace state, and limitations. Use no tools and do not continue the task.", requestId: `handoff-correction:${run.id}:${attempt}` }, waitContext);
+            settled = await correction.wait(waitContext);
+          }
+        }
       }
       if (settled.status !== "done" || settled.type !== "input" || !settled.answer) {
         const entries = await root.entries({}, 20, undefined, context);
@@ -355,6 +417,7 @@ export class Runtime {
       // A competing delegation must not turn recoverable work into a failed run.
       if ((error as NodeJS.ErrnoException).code === "ELOCKED") throw error;
       const reason = controller.signal.reason;
+      if (reason === "shutdown" || reason === "lock lost") run.interruptedPhase = run.status;
       run.status = reason === "shutdown" || reason === "lock lost" ? "interrupted" : reason === "cancelled" ? "aborted" : "failed";
       run.error = error instanceof Error ? error.message : String(error);
       if (pauseRequested && !controller.signal.aborted) {
@@ -372,6 +435,8 @@ export class Runtime {
       clearTimeout(checkpointTimer);
       clearInterval(progressTimer);
       options.signal?.removeEventListener("abort", abort);
+      if (stopConversation) controller.signal.removeEventListener("abort", stopConversation);
+      await conversationStopped?.catch(() => {});
       finishActivity?.();
       unsubscribe?.();
       try {
@@ -383,6 +448,10 @@ export class Runtime {
         }
         if (identityValid && persist) {
           if (harness) run.elapsedMs = (run.elapsedMs ?? 0) + Date.now() - attemptStart;
+          if (run.status === "paused") {
+            run.noProgressPauses = (run.toolCount ?? 0) > (run.pauseToolCount ?? 0) ? 0 : (run.noProgressPauses ?? 0) + 1;
+            run.pauseToolCount = run.toolCount ?? 0;
+          }
           run.updatedAt = Date.now();
           await save(file, run);
         }
