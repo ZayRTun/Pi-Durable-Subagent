@@ -20,7 +20,7 @@ parser.add_argument('extension', type=Path)
 parser.add_argument('--width', type=int, default=80)
 parser.add_argument('--theme', choices=['dark', 'light'], default='dark')
 parser.add_argument('--mode', choices=['regular', 'fullscreen'], default='fullscreen')
-parser.add_argument('--scenario', choices=['single', 'ordered', 'chain', 'parallel', 'failure', 'cancel', 'cancel-chain', 'pause', 'baseline', 'supervised'], default='chain')
+parser.add_argument('--scenario', choices=['single', 'ordered', 'chain', 'parallel', 'failure', 'cancel', 'cancel-chain', 'pause', 'baseline', 'supervised', 'supervised-pause'], default='chain')
 a = parser.parse_args()
 root, extension = a.root.resolve(), a.extension.resolve()
 assert root.name.startswith('durable-tui-'), 'Disposable durable-tui-* directory required'
@@ -47,8 +47,8 @@ raw = bytearray()
 decoder = codecs.getincrementaldecoder('utf-8')('replace')
 
 env = dict(os.environ, TERM='xterm-256color', COLORTERM='truecolor', PI_CODING_AGENT_DIR=str(root/'config'), PI_OFFLINE='1', PI_SKIP_VERSION_CHECK='1', PI_TELEMETRY='0', PI_SUBAGENT_AGENTS=str(root/'agents'), PI_SUBAGENT_STORAGE=str(root/'runs'), DURABLE_TUI_FIXTURE=str(root))
-if a.scenario == "supervised": env["DURABLE_TUI_SUPERVISED"] = "1"
-if a.scenario == "pause": env["DURABLE_TUI_PAUSE"] = "1"
+if a.scenario.startswith("supervised"): env["DURABLE_TUI_SUPERVISED"] = "1"
+if "pause" in a.scenario: env["DURABLE_TUI_PAUSE"] = "1"
 args = ['pi', '--offline', '--no-extensions', '--no-skills', '--no-prompt-templates', '--no-themes', '--no-context-files', '--no-approve', '-e', str(extension/'index.ts'), '-e', str(extension/'test/fixtures/tui-redesign.ts'), '--provider', 'tui-local', '--model', 'faux-1', '--thinking', 'off', '--tools', 'subagent,subagent_cancel,subagent_status,subagent_wait,baseline_clip,tui_read,tui_wait', '--session-dir', str(root/'sessions'), '--tui-mode', a.mode]
 master, slave = pty.openpty()
 fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', rows, cols, 0, 0))
@@ -162,7 +162,7 @@ try:
     os.write(master,(a.scenario+'\r').encode())
     drain(1.3)
     initial,checks=capture('running-collapsed')
-    if a.scenario == 'supervised':
+    if a.scenario.startswith('supervised'):
         assert 'Offline fixture complete.' in initial, 'Parent must finish while child tool waits'
         workerrows=[y for y,line in enumerate(screen) if 'worker (' in ''.join(line)]
         assert len(workerrows)>=2, 'Transcript and sticky execution should both appear'
@@ -192,15 +192,19 @@ try:
                 fcntl.ioctl(master,termios.TIOCSWINSZ,struct.pack('HHHH',rows,cols,0,0));os.kill(process.pid,signal.SIGWINCH)
             drain(.15)
             resized,checks=capture(f'sticky-resize-{newwidth}')
-            assert 'Running' in resized
+            assert 'Running' in resized or 'Pausing' in resized
             assert checks and all(item['background'] is None and item['leftBackground'] is None for item in checks)
             if a.mode=='fullscreen':assert resized.count('Current tool')==1,'Mouse expansion persists across progress and resize'
+        if a.scenario == 'supervised-pause':
+            drain(10)
+            paused,_=capture('sticky-paused')
+            assert 'Paused' in paused and 'Handoff' in paused,'Safely paused detached work stays visible'
         os.write(master,b'cancel supervised\r');drain(1)
         cancelled,_=capture('sticky-removed')
         # Cached start remains in transcript; the sticky sibling is entirely removed.
         assert cancelled.count('worker (')==1, 'Cancelled execution removes the complete sticky area'
         assert 'Offline fixture complete.' in cancelled
-        (root/'acceptance.json').write_text(json.dumps({'scenario':'supervised','width':a.width,'theme':a.theme,'mode':a.mode,'parentReasoning':True,'stickyPlacement':True,'spinnerAdvanced':True,'nativeExpansion':True,'mouseExpansion':a.mode=='fullscreen','removalToBaselineSpacer':True,'paidProviderCalls':0},indent=2))
+        (root/'acceptance.json').write_text(json.dumps({'scenario':a.scenario,'width':a.width,'theme':a.theme,'mode':a.mode,'parentReasoning':True,'stickyPlacement':True,'spinnerAdvanced':True,'nativeExpansion':True,'mouseExpansion':a.mode=='fullscreen','removalToBaselineSpacer':True,'paidProviderCalls':0},indent=2))
         print(f'PASS: supervised native sticky {a.width} {a.theme} {a.mode}')
     elif a.scenario == 'baseline':
         assert checks and any(item['background']!=item['leftBackground'] for item in checks), 'Baseline must reproduce dark ellipsis patches'

@@ -530,8 +530,7 @@ export default async function durableSubagent(pi: ExtensionAPI) {
             }
             throw error;
           }
-          interruptedRuns.delete(run.id);
-          pendingStatus(ctx);
+          observeRun(await runtime.status(run.id, ctx.sessionManager.getSessionId()), ctx);
           ctx.ui.notify("Delegation cancelled.", "info");
         }
       }
