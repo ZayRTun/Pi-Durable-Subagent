@@ -96,6 +96,6 @@ test("malformed execution policies are rejected before a Delegation can be start
     assert.throws(() => parseDelegationRequest({ agent: "scout", task: "A", timeoutMinutes }), /timeoutMinutes must be/);
     assert.throws(() => parseDelegationRequest({ agent: "scout", tasks: [{ task: "A", timeoutMinutes }] }), /timeoutMinutes must be/);
   }
-  assert.throws(() => parseDelegationRequest({ resume: "a".repeat(32), timeoutMinutes: null }), /resume cannot be combined/);
+  assert.throws(() => parseDelegationRequest({ resume: "a".repeat(32), timeoutMinutes: null }), /Continuation requires a nonempty reassessment/);
   assert.throws(() => parseDelegationRequest({ agent: "scout", task: "A", waitSeconds: 60 }), /Unknown parameter waitSeconds/);
 });

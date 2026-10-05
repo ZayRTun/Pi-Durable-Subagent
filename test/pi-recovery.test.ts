@@ -113,3 +113,70 @@ test("normal SDK shutdown/reopen stays paused; operator-approved resume preserve
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+
+test("historical failed recovery requires approval, preserves failure until approved, and uses a fresh input", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "durable-failed-recovery-"));
+  const old = { agents: process.env.PI_SUBAGENT_AGENTS, storage: process.env.PI_SUBAGENT_STORAGE };
+  process.env.PI_SUBAGENT_AGENTS = directory;
+  process.env.PI_SUBAGENT_STORAGE = join(directory, "runs");
+  let session: Awaited<ReturnType<typeof createAgentSession>>["session"] | undefined;
+  const faux = fauxProvider();
+  try {
+    await writeFile(join(directory, "scout.md"), "---\nname: scout\ndescription: Failed fixture\ntools: []\n---\nOriginal role.");
+    const models = await ModelRuntime.create({ authPath: join(directory, "auth.json"), modelsPath: null, modelsStorePath: join(directory, "models.json"), refreshOnCreate: false });
+    models.registerNativeProvider(faux.provider);
+    const settings = SettingsManager.inMemory({ defaultTools: ["subagent"] });
+    const loader = new DefaultResourceLoader({ cwd: directory, agentDir: directory, settingsManager: settings,
+      noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true,
+      additionalExtensionPaths: [fileURLToPath(new URL("../index.ts", import.meta.url))] });
+    await loader.reload();
+    ({ session } = await createAgentSession({ cwd: directory, agentDir: directory, modelRuntime: models, model: faux.getModel(),
+      settingsManager: settings, resourceLoader: loader, sessionManager: SessionManager.inMemory(directory), thinkingLevel: "off" }));
+    await session.bindExtensions({ mode: "print" });
+    faux.setResponses([
+      fauxAssistantMessage([fauxToolCall("subagent", { agent: "scout", task: "Inspect evidence." })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([], { stopReason: "error", errorMessage: "400 Permanent fixture failure" }),
+      fauxAssistantMessage("Parent sees failure."),
+    ]);
+    await session.prompt("Run failing work.");
+    const result = session.messages.findLast(m => m.role === "toolResult" && m.toolName === "subagent");
+    assert.ok(result && result.role === "toolResult");
+    const run = result.details as unknown as import("../runtime.ts").Run;
+    assert.equal(run.status, "failed");
+    const { Runtime } = await import("../runtime.ts");
+    const inspector = new Runtime(join(directory, "runs"));
+    const before = await inspector.read(run.id);
+    assert.equal((await inspector.list(run.sessionId))[0].status, "failed");
+    faux.setResponses([
+      fauxAssistantMessage([fauxToolCall("subagent", { resume: run.id })], { stopReason: "toolUse" }),
+      fauxAssistantMessage("Approval required."),
+    ]);
+    await session.prompt("Attempt recovery without approval.");
+    const denial = session.messages.findLast(m => m.role === "toolResult");
+    assert.ok(denial && denial.role === "toolResult" && denial.isError);
+    assert.match(JSON.stringify(denial.content), /Explicit resume approval required/);
+    assert.deepEqual(await inspector.read(run.id), before);
+    loader.getExtensions().runtime.flagValues.set("subagent-resume", run.id);
+    faux.setResponses([
+      fauxAssistantMessage([fauxToolCall("subagent", { resume: run.id })], { stopReason: "toolUse" }),
+      context => {
+        assert.match(JSON.stringify(context.messages), /operator approved recovery/);
+        assert.match(JSON.stringify(context.messages), /Inspect evidence/);
+        return fauxAssistantMessage("Recovered useful evidence.");
+      },
+      fauxAssistantMessage("Parent recovered."),
+    ]);
+    await session.prompt("Operator approves recovery.");
+    const final = await inspector.read(run.id);
+    assert.equal(final.status, "succeeded");
+    assert.equal(final.output, "Recovered useful evidence.");
+    assert.match(final.recoveryHistory![0].error!, /400 Permanent fixture failure/);
+  } finally {
+    if (session) { await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" }); session.dispose(); }
+    for (const [key, value] of [["PI_SUBAGENT_AGENTS", old.agents], ["PI_SUBAGENT_STORAGE", old.storage]] as const) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+    await rm(directory, { recursive: true, force: true });
+  }
+});
