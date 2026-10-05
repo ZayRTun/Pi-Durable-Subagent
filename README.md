@@ -53,7 +53,7 @@ An unrecognized parameter is an error naming it, never an ignored key. A caller 
 
 Durable delegation calls use Pi's self-rendered shell, with no background fill in any execution state. They sit on the normal chat background without changing user-message or other tool styling.
 
-The collapsed view is two lines. The first carries the state icon, the agent name in its own color and bold, and the requested task in parentheses capped at 50 Unicode characters including the ellipsis, then clipped further to the terminal width. The second begins with `⎿` and names the state — Running, Done, Failed, Cancelled, or Interrupted — then the model, thinking level, tool uses, tokens, cost, and elapsed time in parentheses. A single run has no header. Grouped output has a one-space outer inset across its heading, tree rows, separators, and expanded content; internal connector spacing is unchanged. Several steps are grouped under `Delegation · Ordered/Chain/Parallel · X/N done`, where done counts succeeded, failed, and cancelled runs only, and the cost is the sum of the children's recorded cost, not an added charge.
+The collapsed view is two lines. The first carries the state icon, the agent name in its own color and bold, and the requested task in parentheses capped at 50 Unicode characters including the ellipsis, then clipped further to the terminal width. The second begins with `⎿` and names the state — Running, Pausing, Preparing handoff, Paused, Done, Failed, Cancelled, or Interrupted — then the model, thinking level, tool uses, tokens, cost, and elapsed time in parentheses. A single run has no header. Grouped output has a one-space outer inset across its heading, tree rows, separators, and expanded content; internal connector spacing is unchanged. Several steps are grouped under `Delegation · Ordered/Chain/Parallel · X/N done`, where done counts succeeded, failed, and cancelled runs only, and the cost is the sum of the children's recorded cost, not an added charge.
 
 Metrics degrade by dropping tokens first, then the tool count, keeping model, thinking, cost, and elapsed time while they fit; model names may be shortened further, while numeric readings are omitted as whole items rather than cut halfway. Elapsed time reads `4m 19.1s`. Cost keeps the shared honest formatter, so a real but tiny spend never reads as free.
 
@@ -63,15 +63,18 @@ Pi's normal tool expansion shows current/recent activity only while running, the
 
 ## Run States
 
-Every delegation is in exactly one Run State, using the vocabulary in this repository's `CONTEXT.md`:
+Every delegation records its execution state:
 
-- **Running** — still executing.
+- **Running** — working within its optional execution allowance.
+- **Pausing** — allowance expired; the current tool retains workspace ownership while it finishes. New work tools are prohibited by the host, including calls already emitted in the same batch.
+- **Preparing handoff** — work tools have drained; a final model turn runs with no tools and no separate handoff deadline.
+- **Paused** — unfinished work and a handoff are retained, and workspace ownership is released. If the handoff failed, the retained record explains its limitation. Inspection and reopening leave it stopped; continuation controls are not yet available.
 - **Succeeded** — finished successfully.
-- **Failed** — finished unsuccessfully, either from the Sub-agent's own error or from exceeding its declared time budget. A timeout therefore reports `failed` with `Timed out after N minutes`, and the failed result keeps its partial answer when one was produced.
-- **Aborted** — the user deliberately stopped it. Distinct from Failed; cancellation is not undone.
-- **Interrupted** — the invoking session ended before the Sub-agent finished, so the run is paused and resumable. This is the only non-finished state that can continue, and only with explicit approval.
+- **Failed** — finished unsuccessfully from an execution/provider error. Historical timeout failures remain Failed.
+- **Aborted** — deliberately cancelled; cancellation does not undo completed effects.
+- **Interrupted** — the owning session closed or ownership was lost. Reopening leaves it stopped, and recovery requires explicit approval.
 
-This is a deliberate fifth state: a session shutdown is neither the Sub-agent's own error nor a user choice, and its work is preserved rather than failed. `CONTEXT.md` and this extension are kept in agreement on these names.
+For an allowance, a checkpoint is requested at 80% of the work period. The host closes tool admission at expiry; prompt instructions alone do not enforce this boundary. A stuck tool stays Pausing until it finishes or cancellation stops it. The expanded native row shows the complete task, current/retained activity, and handoff using the existing layout. A handoff is separate from the final task answer.
 
 ## Agent definitions
 
@@ -196,7 +199,7 @@ No daemon or remote runner is included. Chains, ordered batches, and explicitly 
 
 Records are retained until manually removed. Close all Pi processes using this storage before deleting old run directories. Removing records destroys their recovery/history. Stored prompts, outputs, paths, and tool transcripts may contain sensitive data. The extension does not copy provider credentials into metadata, but sensitive data returned by tools/providers or included in instructions may still be persisted. Storage directories are private and metadata files use mode 0600 where supported. The default location is covered by this repository's existing session-data ignore rule.
 
-Cancellation/explicit execution deadlines are cooperative: a third-party tool that ignores abort signals can delay shutdown. An in-process extension cannot safely force-kill such a tool. Runtime timeouts apply per active execution attempt, not wall-clock time while Pi is closed.
+Cancellation/explicit execution deadlines are cooperative: a third-party tool that ignores abort signals can delay shutdown. An in-process extension cannot safely force-kill such a tool. Execution allowances apply per active work attempt, not wall-clock time while Pi is closed; expiry requests a safe pause rather than aborting the current tool.
 
 ## Verification
 

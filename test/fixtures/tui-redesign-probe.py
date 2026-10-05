@@ -20,7 +20,7 @@ parser.add_argument('extension', type=Path)
 parser.add_argument('--width', type=int, default=80)
 parser.add_argument('--theme', choices=['dark', 'light'], default='dark')
 parser.add_argument('--mode', choices=['regular', 'fullscreen'], default='fullscreen')
-parser.add_argument('--scenario', choices=['single', 'ordered', 'chain', 'parallel', 'failure', 'cancel', 'cancel-chain', 'baseline'], default='chain')
+parser.add_argument('--scenario', choices=['single', 'ordered', 'chain', 'parallel', 'failure', 'cancel', 'cancel-chain', 'pause', 'baseline'], default='chain')
 a = parser.parse_args()
 root, extension = a.root.resolve(), a.extension.resolve()
 assert root.name.startswith('durable-tui-'), 'Disposable durable-tui-* directory required'
@@ -47,6 +47,7 @@ raw = bytearray()
 decoder = codecs.getincrementaldecoder('utf-8')('replace')
 
 env = dict(os.environ, TERM='xterm-256color', COLORTERM='truecolor', PI_CODING_AGENT_DIR=str(root/'config'), PI_OFFLINE='1', PI_SKIP_VERSION_CHECK='1', PI_TELEMETRY='0', PI_SUBAGENT_AGENTS=str(root/'agents'), PI_SUBAGENT_STORAGE=str(root/'runs'), DURABLE_TUI_FIXTURE=str(root))
+if a.scenario == "pause": env["DURABLE_TUI_PAUSE"] = "1"
 args = ['pi', '--offline', '--no-extensions', '--no-skills', '--no-prompt-templates', '--no-themes', '--no-context-files', '--no-approve', '-e', str(extension/'index.ts'), '-e', str(extension/'test/fixtures/tui-redesign.ts'), '--provider', 'tui-local', '--model', 'faux-1', '--thinking', 'off', '--tools', 'subagent,baseline_clip,tui_read,tui_wait', '--session-dir', str(root/'sessions'), '--tui-mode', a.mode]
 master, slave = pty.openpty()
 fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', rows, cols, 0, 0))
@@ -185,10 +186,13 @@ try:
         if a.scenario in ('cancel','cancel-chain'):os.write(master,b'\x1b')
         drain(11 if a.scenario in ('chain','ordered') else 3)
         final,_=capture('completed-expanded')
-        assert ('Cancelled' if a.scenario in ('cancel','cancel-chain') else 'Failed' if a.scenario=='failure' else 'Done') in final
+        assert ('Cancelled' if a.scenario in ('cancel','cancel-chain') else 'Failed' if a.scenario=='failure' else 'Paused' if a.scenario=='pause' else 'Done') in final
         if a.scenario == 'cancel-chain':
             assert '1/3 done' in final and final.count('Not run') == 2 and 'Pending' not in final
-        if a.scenario not in ('cancel','cancel-chain','failure'):
+        if a.scenario == 'pause':
+            assert 'Handoff' in final and 'Retained activity' in final
+            assert 'Pausing' in expanded and 'Current tool' in expanded
+        if a.scenario not in ('cancel','cancel-chain','failure','pause'):
             assert 'Changes' in final and 'Verification' in final
             assert 'Recent activity' not in final and 'Current tool' not in final
         os.write(master,b'\x0f');drain(0.2)

@@ -10,8 +10,8 @@ import type { AgentDefinition } from "./agents.ts";
 import { subagentInstructions } from "./prompt.ts";
 import { collectToolArguments, describeActivity, reconcileToolDiagnostics, toolActivity } from "./activity.ts";
 
-export type RunStatus = "running" | "succeeded" | "failed" | "aborted" | "interrupted";
-/** Succeeded, Failed, and Aborted are finished; Running and Interrupted are not. */
+export type RunStatus = "running" | "succeeded" | "failed" | "aborted" | "interrupted" | "pausing" | "preparing-handoff" | "paused";
+/** Paused work is unfinished and safely inactive; Interrupted requires explicit recovery. */
 export const TERMINAL_STATUSES: readonly RunStatus[] = ["succeeded", "failed", "aborted"];
 export const isTerminal = (run: Pick<Run, "status">) => TERMINAL_STATUSES.includes(run.status);
 export interface Run {
@@ -36,6 +36,10 @@ export interface Run {
   activity: string;
   unavailable: string[];
   output?: string;
+  pauseReason?: "allowance";
+  handoff?: string;
+  handoffLimitation?: string;
+  checkpointRequestedAt?: number;
   /** Unique tool calls across this run's history, reconstructed from durable entries on recovery. */
   toolCount?: number;
   activityLog?: { callId: string; name: string; status: string; output?: string; summary?: string; uncertain?: boolean; failed?: boolean }[];
@@ -102,7 +106,7 @@ export class Runtime {
       try { run = await this.read(id); }
       catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") continue; throw error; }
       if (run.sessionId !== sessionId) continue;
-      if (!terminal(run) && !this.active.has(id)) { run.status = "interrupted"; run.activity = "Awaiting explicit resume"; }
+      if (!terminal(run) && run.status !== "paused" && !this.active.has(id)) { run.status = "interrupted"; run.activity = "Awaiting explicit resume"; }
       // A running delegation reports what it is doing now; the on-disk record only has its start state.
       runs.push(this.active.has(id) ? { ...(this.live.get(id) ?? run) } : run);
     }
@@ -115,7 +119,7 @@ export class Runtime {
     catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
     if (cached) {
       if (cached.sessionId !== seed.sessionId || cached.cwd !== seed.cwd || cached.task !== seed.task) throw new Error("Run identity does not match this delegation");
-      if (terminal(cached)) return cached;
+      if (terminal(cached) || cached.status === "paused") return cached;
     }
     // Recheck after the read: another invocation may have entered or shutdown begun.
     if (this.closing) throw new Error("Runtime is shutting down");
@@ -141,6 +145,11 @@ export class Runtime {
     let unsubscribe: (() => void) | undefined;
     let finishActivity: (() => void) | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let checkpointTimer: ReturnType<typeof setTimeout> | undefined;
+    let pauseRequested = false;
+    let activeWorkTools = 0;
+    let publishPhase = () => {};
+    let pauseConfiguration: Promise<void> | undefined;
     let progressTimer: ReturnType<typeof setInterval> | undefined;
     // Unique call IDs seen this execution; the bounded activityLog is not a tool-use total.
     const seenCalls = new Set<string>();
@@ -170,17 +179,32 @@ export class Runtime {
       if (!options.models.getModel(run.model.provider, run.model.modelId)) throw new Error(`Model unavailable: ${run.model.provider}/${run.model.modelId}`);
       run = { ...run, status: "running", error: undefined, activity: "Starting", unavailable: run.agent.tools.filter((name) => !options.tools.some((tool) => tool.name === name)) };
       const registry = createRegistry();
-      registry.install(defineExtension({ name: "pi-tools", tools: options.tools }));
+      // Dispatch admission is checked even for calls already emitted in a model tool batch.
+      // Removing the offered tools alone cannot revoke such an already planned call.
+      const workTools = options.tools.map(tool => ({ ...tool, execute: async (...args: Parameters<typeof tool.execute>) => {
+        if (pauseRequested || controller.signal.aborted) throw new Error("Execution allowance ended; new work tools are prohibited");
+        activeWorkTools++;
+        try { return await tool.execute(...args); }
+        finally {
+          activeWorkTools--;
+          if (pauseRequested && !controller.signal.aborted && activeWorkTools === 0) {
+            run.status = "preparing-handoff";
+            run.activity = "Preparing tool-free handoff";
+            publishPhase();
+          }
+        }
+      } }));
+      registry.install(defineExtension({ name: "pi-tools", tools: workTools }));
       harness = await Harness.open(await openNodeSqliteStorage(join(directory, "agent.sqlite")), { models: options.models, registry,
         settings: { toolExecution: "sequential", retry: { maxRetries: 2 } } }, context);
       const instructions = subagentInstructions(run.agent, run.cwd, options.tools.map((tool) => tool.name), run.unavailable);
       const root = await harness.root(context, { agent: {
         model: run.model, thinkingLevel: run.thinking,
-        tools: options.tools, cwd: run.cwd,
+        tools: workTools, cwd: run.cwd,
         instructions,
       } });
       // Reconfigure only the loadout, not the frozen role/model/task on resume.
-      await root.configure({ tools: options.tools, instructions }, context);
+      await root.configure({ tools: workTools, instructions }, context);
       // Scan history once so resuming cannot count old live slots again, even after compaction
       // or a hard kill that left only the start metadata on disk.
       let cursor: Parameters<typeof root.entries>[2];
@@ -193,7 +217,7 @@ export class Runtime {
       const view = await root.viewState(context);
       let last = 0;
       const publish = () => {
-        if (run.status !== "running" || controller.signal.aborted) return;
+        if (controller.signal.aborted) return;
         const live = view.value.docs["pi.live"] as LiveState | undefined;
         const calls = live?.tools;
         const ledger = view.value.docs["pi.usage"] as Partial<UsageState> | undefined;
@@ -211,7 +235,7 @@ export class Runtime {
         reconcileToolDiagnostics(run.activityLog ?? [], view.value.entries.slice(-60));
         const activity = describeActivity(live);
         const changed = activity !== run.activity;
-        run.activity = activity;
+        if (run.status === "running") run.activity = activity;
         if (changed || Date.now() - last >= 150) {
           last = Date.now();
           // Deep copy the activity list so an earlier emitted update never mutates under a later one.
@@ -220,6 +244,7 @@ export class Runtime {
           options.onUpdate?.(snapshot);
         }
       };
+      publishPhase = publish;
       finishActivity = () => reconcileToolDiagnostics(run.activityLog ?? [], view.value.entries.slice(-60));
       const off = view.subscribe(publish);
       // Active execution keeps the host alive even when a tool awaits only a Promise and there
@@ -231,11 +256,40 @@ export class Runtime {
       options.signal?.addEventListener("abort", abort, { once: true });
       if (options.signal?.aborted) abort();
       const allowance = run.timeoutMinutes !== undefined ? run.timeoutMinutes : run.agent.timeoutMinutes;
-      if (allowance != null) timer = setTimeout(() => controller.abort("timeout"), allowance * 60000);
+      if (allowance != null) {
+        checkpointTimer = setTimeout(() => {
+          run.checkpointRequestedAt = Date.now();
+          // Steering is consumed at a safe generation/tool boundary; it cannot stop a tool.
+          void root.submit({ type: "input", whenBusy: "steer", content: "Your execution allowance is nearing expiry. Preserve a checkpoint of progress and remaining work before the pause boundary.", requestId: `checkpoint:${run.id}` }, context).catch(() => {});
+        }, allowance * 48000);
+        timer = setTimeout(() => {
+          pauseRequested = true;
+          run.status = activeWorkTools ? "pausing" : "preparing-handoff";
+          run.pauseReason = "allowance";
+          run.activity = activeWorkTools ? "Waiting for current work to finish" : "Preparing tool-free handoff";
+          pauseConfiguration = root.configure({ tools: [] }, context);
+          // Observe rejection immediately, while the awaited work safely drains.
+          void pauseConfiguration.catch(() => {});
+          publish();
+        }, allowance * 60000);
+      }
       const waitContext = withAbortSignal(controller.signal, context);
       if (controller.signal.aborted) throw new Error(String(controller.signal.reason));
       const submission = await root.submit({ type: "input", content: run.task, requestId: `delegation:${run.id}` }, waitContext);
-      const settled = await submission.wait(waitContext);
+      let settled = await submission.wait(waitContext);
+      // An answer settled inside the work allowance is completion; metadata/ledger commits
+      // after this boundary must not turn it into an unrequested pause.
+      if (!pauseRequested) { clearTimeout(timer); clearTimeout(checkpointTimer); }
+      if (pauseRequested) {
+        await pauseConfiguration;
+        // No outstanding tool remains when the submission settles. The final turn has no
+        // offered tools, and the dispatch gate remains closed until harness shutdown.
+        run.status = "preparing-handoff";
+        run.activity = "Preparing tool-free handoff";
+        publish();
+        const handoff = await root.submit({ type: "input", content: "Execution is paused. Produce a final tool-free handoff: completed progress, unfinished task, workspace state, and limitations. Do not claim the task is complete.", requestId: `handoff:${run.id}` }, waitContext);
+        settled = await handoff.wait(waitContext);
+      }
       if (settled.status !== "done" || settled.type !== "input" || !settled.answer) {
         const entries = await root.entries({}, 20, undefined, context);
         const failure = entries.items.flatMap((entry) => entry.model ?? []).find(
@@ -245,23 +299,33 @@ export class Runtime {
       }
       const entry = await root.commit((tx) => tx.entry(AssistantEntry, settled.answer!), context);
       const message = entry?.model?.[0] as AssistantMessage | undefined;
-      run.output = message?.content.flatMap((part) => part.type === "text" ? [part.text] : []).join("") ?? "";
+      const answer = message?.content.flatMap((part) => part.type === "text" ? [part.text] : []).join("") ?? "";
       if (message?.stopReason === "error" || message?.stopReason === "aborted") throw new Error(message.errorMessage ?? "Model did not complete");
-      run.status = "succeeded"; run.activity = "Completed";
+      if (pauseRequested) {
+        run.handoff = answer;
+        if (!answer.trim()) run.handoffLimitation = "The handoff model returned no text; retained progress remains inspectable.";
+        run.status = "paused"; run.activity = "Paused at execution allowance";
+      } else { run.output = answer; run.status = "succeeded"; run.activity = "Completed"; }
     } catch (error) {
       if (!identityValid) throw error;
       // A competing delegation must not turn recoverable work into a failed run.
       if ((error as NodeJS.ErrnoException).code === "ELOCKED") throw error;
       const reason = controller.signal.reason;
       run.status = reason === "shutdown" || reason === "lock lost" ? "interrupted" : reason === "cancelled" ? "aborted" : "failed";
-      run.error = reason === "timeout" ? `Timed out after ${run.timeoutMinutes !== undefined ? run.timeoutMinutes : run.agent.timeoutMinutes} minutes` : error instanceof Error ? error.message : String(error);
-      run.activity = run.status === "interrupted" ? "Awaiting explicit resume" : run.status === "aborted" ? "Cancelled" : "Failed";
+      run.error = error instanceof Error ? error.message : String(error);
+      if (pauseRequested && !controller.signal.aborted) {
+        run.status = "paused";
+        run.handoffLimitation = `Handoff unavailable: ${run.error}. Review retained activity and unfinished task.`;
+        run.error = undefined;
+      }
+      run.activity = run.status === "paused" ? "Paused; handoff unavailable" : run.status === "interrupted" ? "Awaiting explicit resume" : run.status === "aborted" ? "Cancelled" : "Failed";
       if (harness && run.status !== "interrupted") {
         const root = await harness.root(context);
         await root.abort(context);
       }
     } finally {
       clearTimeout(timer);
+      clearTimeout(checkpointTimer);
       clearInterval(progressTimer);
       options.signal?.removeEventListener("abort", abort);
       finishActivity?.();

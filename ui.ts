@@ -29,8 +29,8 @@ export function clipAnsi(text: string, width: number, ellipsis = "…"): string 
 }
 
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-const STATUS_ICON: Record<string, string> = { succeeded: "✓", failed: "✗", aborted: "■", interrupted: "◌" };
-const STATUS_LABEL: Record<string, string> = { running: "Running", succeeded: "Done", failed: "Failed", aborted: "Cancelled", interrupted: "Interrupted" };
+const STATUS_ICON: Record<string, string> = { succeeded: "✓", failed: "✗", aborted: "■", interrupted: "◌", paused: "◌", pausing: "⠹", "preparing-handoff": "⠹" };
+const STATUS_LABEL: Record<string, string> = { running: "Running", succeeded: "Done", failed: "Failed", aborted: "Cancelled", interrupted: "Interrupted", pausing: "Pausing", "preparing-handoff": "Preparing handoff", paused: "Paused" };
 
 /** Shared per-tool-row renderer state. `state` is the native ToolRenderContext.state bag. */
 export interface RendererState {
@@ -100,7 +100,7 @@ function entryState(entry: DelegationEntry, run: Run | undefined, active: boolea
   if (entry.phase !== "run" || !run) {
     return entry.phase === "not-run" ? { icon: "○", label: "Not run", token: "dim" } : { icon: "○", label: "Pending", token: "dim" };
   }
-  if (run.status === "running") return { icon: active ? SPINNER[Math.floor(now / 120) % SPINNER.length] : "⠹", label: "Running", token: "accent" };
+  if (["running", "pausing", "preparing-handoff"].includes(run.status)) return { icon: active ? SPINNER[Math.floor(now / 120) % SPINNER.length] : "⠹", label: STATUS_LABEL[run.status], token: "accent" };
   return { icon: STATUS_ICON[run.status] ?? "○", label: STATUS_LABEL[run.status] ?? run.status, token: stateToken(run.status) };
 }
 
@@ -145,7 +145,7 @@ function expandedLines(input: EntryInput, width: number, theme: Theme, contentPr
   const run = input.run;
   if (!run) return [];
   const out: string[] = [blank, contentPrefix + theme.fg("dim", "Task"), blank, ...contentWrapped(input.entry.requestedTask, contentPrefix, width, theme)];
-  if (run.status === "running") {
+  if (["running", "pausing", "preparing-handoff"].includes(run.status)) {
     const current = run.activityLog?.find((call) => call.status === "running");
     out.push(blank, contentPrefix + theme.fg("dim", "Current tool"), blank);
     out.push(contentPrefix + clipAnsi(current ? `${current.name}${current.summary ? ` · ${current.summary}` : ""}` : clean(run.activity || "Waiting for model"), Math.max(0, width - visibleWidth(contentPrefix))));
@@ -157,10 +157,14 @@ function expandedLines(input: EntryInput, width: number, theme: Theme, contentPr
     }
     return out;
   }
+  if (run.status === "paused") {
+    const recent = (run.activityLog ?? []).slice(-3).reverse();
+    if (recent.length) out.push(blank, contentPrefix + theme.fg("dim", "Retained activity"), blank, ...recent.map(call => contentPrefix + clipAnsi(activityReading(call), Math.max(0, width - visibleWidth(contentPrefix)))));
+  }
   if (run.status === "interrupted" && !run.output) return out;
-  const body = run.status === "succeeded" ? run.output ?? "" : [run.error, run.output ? `Partial answer:\n${run.output}` : ""].filter(Boolean).join("\n\n");
+  const body = run.status === "paused" ? [run.handoff, run.handoffLimitation].filter(Boolean).join("\n\n") : run.status === "succeeded" ? run.output ?? "" : [run.error, run.output ? `Partial answer:\n${run.output}` : ""].filter(Boolean).join("\n\n");
   if (!body) return out;
-  out.push(blank, contentPrefix + theme.fg("dim", "Response"), blank);
+  out.push(blank, contentPrefix + theme.fg("dim", run.status === "paused" ? "Handoff" : "Response"), blank);
   if (run.status === "succeeded") {
     const contentWidth = Math.max(1, width - visibleWidth(contentPrefix));
     const text = clean(body).slice(0, OUTPUT_LIMIT);
@@ -216,7 +220,7 @@ class Fitted implements Component {
 /** The 2-line base plus expansion for one run with no group header. */
 export function renderRun(run: Run, expanded: boolean, theme: Theme, options: ViewOptions = {}): Component {
   const input: EntryInput = { entry: { runId: run.id, agent: run.agent.name, requestedTask: run.task, phase: "run" }, run, last: true, grouped: false };
-  const active = options.active === true && run.status === "running";
+  const active = options.active === true && ["running", "pausing", "preparing-handoff"].includes(run.status);
   const startAt = run.updatedAt || options.now || Date.now();
   return new Fitted((width) => {
     const now = options.now ?? Date.now();
@@ -248,7 +252,7 @@ export function renderGroup(presentation: DelegationPresentation | undefined, ru
     const build = (width: number) => {
       const now = options.now ?? Date.now();
       const effective = state.childExpanded?.[entry.runId] ?? expanded;
-      const active = options.active === true && run?.status === "running";
+      const active = options.active === true && !!run && ["running", "pausing", "preparing-handoff"].includes(run.status);
       const elapsedMs = (run?.elapsedMs ?? 0) + (active ? Math.max(0, now - (run?.updatedAt || startAt)) : 0);
       const lines = buildEntryLines(input, Math.max(0, width - 1), theme, { active, now, expanded: effective, elapsedMs, state });
       if (!last) lines.push(theme.style(" │", { fg: parseColor("#ffffff") }));
