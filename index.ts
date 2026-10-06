@@ -51,6 +51,15 @@ export function runMetadata(run: Run, options: { billed?: Usage; retrieved: bool
   return readings.join(" · ");
 }
 
+function groupSummary(group: GroupSnapshot): string {
+  const byId = new Map(group.steps.map(run => [run.id, run]));
+  return `Group ${group.id} · ${group.status} · ${group.activity}\n${group.presentation.entries.map((entry, index) => {
+    const run = byId.get(entry.runId);
+    const state = run?.status ?? (entry.phase === "pending" ? "Pending" : "Not run");
+    return `Step ${index + 1}/${group.presentation.entries.length} · ${entry.agent} · ${entry.runId} · ${state}${group.errors?.[entry.runId] ? ` · ${group.errors[entry.runId]}` : ""}`;
+  }).join("\n")}`;
+}
+
 const nestedDescription = "Delegate one self-contained task to a named Sub-agent, or several with {tasks} or {chain}. Nesting is bounded and the reply names each run ID.";
 
 interface ProgressUpdate {
@@ -319,7 +328,7 @@ export default async function durableSubagent(pi: ExtensionAPI) {
           liveById.set(run.id, run);
           entries[entryIndex].phase = "run";
           lastActivity = run.activity;
-          emitUpdate();
+          if (mode === "single" && !seed.nonblocking) emitUpdate();
         },
       };
     };
@@ -348,17 +357,17 @@ export default async function durableSubagent(pi: ExtensionAPI) {
         }, group.nonblocking);
         results = groupSnapshot.steps;
         presentation.entries = groupSnapshot.presentation.entries;
-        if (group.nonblocking) return { content: [{ type: "text", text: `Nonblocking Group ${group.id} · ${groupSnapshot.status}. Inspect, wait or cancel with its group handle; child handles target individual steps. Pending Ordered/Chain dependencies start only after successful final answers.` }], details: groupSnapshot, isError: groupSnapshot.status === "failed", usage: undefined };
+        if (group.nonblocking) return { content: [{ type: "text", text: `Nonblocking ${groupSummary(groupSnapshot)}\nInspect, wait or cancel with the group handle; child handles target individual steps. Pending Ordered/Chain dependencies start only after successful final answers.` }], details: groupSnapshot, isError: groupSnapshot.status === "failed", usage: undefined };
       } else {
         if (!signal?.aborted) results.push(await executeSeed(seeds[0], 0));
         for (const entry of entries) entry.phase = resultsById.has(entry.runId) ? "run" : "not-run";
       }
-      emitUpdate();
+      if (mode === "single") emitUpdate();
     } finally { if (ctx.mode === "tui") stopHeartbeat(options.callbackId); }
     const branch = ctx.sessionManager.getBranch();
     const blocks = results.map((result, index) => {
       const body = result.status === "paused" ? [result.activity, result.handoff, result.handoffLimitation].filter(Boolean).join("\n\n") : result.status === "succeeded" ? result.output ?? result.activity : `${result.error ?? result.activity}${result.output ? `\nPartial answer:\n${result.output}` : ""}`;
-      const label = results.length === 1 ? `Run ${result.id} · ${result.status}` : `Step ${index + 1}/${results.length} · ${result.agent.name} · Run ${result.id} · ${result.status}`;
+      const label = mode === "single" ? `Run ${result.id} · ${result.status}` : `Step ${presentation.entries.findIndex(entry => entry.runId === result.id) + 1}/${seeds.length} · ${result.agent.name} · Run ${result.id} · ${result.status}`;
       const place = result.worktree ? ` · ${result.worktree.branch}` : "";
       const metadata = runMetadata(result, { billed: usageToReport(result, branch), retrieved: retrieved.has(result.id) });
       return `${label}${place}\n${metadata}\n${body.slice(0, 30000)}${body.length > 30000 ? `\n[Truncated. Full result: ${join(storage, result.id, "run.json")}]` : ""}`;
@@ -368,9 +377,9 @@ export default async function durableSubagent(pi: ExtensionAPI) {
     const retained = results.flatMap((result) => result.worktree ? [`${result.worktree.branch} at ${result.worktree.path}`] : []);
     const isolated = retained.length ? `\nIsolated checkouts of the caller's HEAD: ${retained.join("; ")}. Merge what you keep; they are retained, not removed.` : "";
     return {
-      content: [{ type: "text", text: `${blocks.join("\n\n")}${unavailable.length ? `\nUnavailable declared tools: ${unavailable.join(", ")}` : ""}${unresolved}${isolated}` }],
+      content: [{ type: "text", text: `${groupSnapshot ? `${groupSummary(groupSnapshot)}\n\n` : ""}${blocks.join("\n\n")}${unavailable.length ? `\nUnavailable declared tools: ${unavailable.join(", ")}` : ""}${unresolved}${isolated}` }],
       details: mode === "single" && results[0] ? results[0] : groupSnapshot ?? { steps: results, presentation },
-      isError: results.length !== seeds.length || results.some((result) => result.status !== "succeeded" && result.status !== "paused"),
+      isError: groupSnapshot?.status === "paused" ? false : results.length !== seeds.length || results.some((result) => result.status !== "succeeded" && result.status !== "paused"),
       // Pi automatically includes nested-tool usage; report only the Sub-agents' own model spend here.
       usage: usageForRuns(results, branch),
     };
@@ -379,7 +388,7 @@ export default async function durableSubagent(pi: ExtensionAPI) {
   const timeoutPolicy = Type.Optional(Type.Unsafe<number | null>({ type: ["number", "null"], minimum: 1, maximum: 480, description: "Execution allowance in minutes; null explicitly removes the deadline. Overrides Agent default. Omitted uses Agent default, otherwise no deadline. This is not a supervision wait duration." }));
   const handoffRetryPolicy = Type.Optional(Type.Union([Type.Literal("bounded"), Type.Literal("unlimited")], { description: "Handoff transient retry policy; default bounded allows three retries. Unlimited remains cancellable and session-owned." }));
   const parameters = Type.Object({
-    nonblocking: Type.Optional(Type.Boolean({ description: "Explicitly return a stable execution handle while one task continues; blocking remains the default" })),
+    nonblocking: Type.Optional(Type.Boolean({ description: "Explicitly return a stable execution or group handle while requested work continues; blocking remains the default" })),
     agent: Type.Optional(Type.String({ description: "Named agent for a new delegation" })),
     task: Type.Optional(Type.String({ minLength: 1, maxLength: 200000, description: "Self-contained task, including necessary context" })),
     model: Type.Optional(Type.String({ description: "Exact provider/model-id, task:<pool name>, or inherit-parent" })),
@@ -459,9 +468,15 @@ export default async function durableSubagent(pi: ExtensionAPI) {
 
   const handleParameters = { run: Type.String({ pattern: "^[a-f0-9]{32}$", description: "Execution handle returned by subagent" }) };
   for (const operation of ["status", "wait", "cancel"] as const) pi.registerTool({
-    name: `subagent_${operation}`, label: `Subagent ${operation}`, exposure: "model-only",
+    name: `subagent_${operation}`, label: `Subagent ${operation}`, exposure: "model-only", renderShell: "self",
+    renderCall() { return new Container(); },
     description: operation === "wait" ? "Wait up to 60 seconds (override waitSeconds) without stopping the child. Returns the current execution state." : `${operation === "cancel" ? "Cancel and await cleanup of" : "Inspect live progress and retained result for"} an execution owned by this session.`,
     parameters: Type.Object({ ...handleParameters, ...(operation === "wait" ? { waitSeconds: Type.Optional(Type.Number({ minimum: 0, maximum: 3600 })) } : {}) }),
+    renderResult(result, options, theme, context) {
+      const details = result.details as GroupSnapshot | undefined;
+      if (details && Array.isArray(details.steps)) return renderGroup(details.presentation, details.steps, options.expanded, theme, { state: context.state as RendererState, invalidate: context.invalidate });
+      return renderGenericResult(result.content.filter(part => part.type === "text").map(part => clean(part.text)).join("\n"), options.expanded);
+    },
     async execute(_id, args, signal, _update, ctx) {
       const id = String(args.run); const sessionId = ctx.sessionManager.getSessionId();
       const stored = await runtime.readGroup(id);
@@ -476,7 +491,7 @@ export default async function durableSubagent(pi: ExtensionAPI) {
           const entry = group.presentation.entries.find(entry => entry.runId === id)!;
           return { content: [{ type: "text", text: `Child ${id} · Not run` }], details: { id, groupId: group.id, phase: entry.phase, status: entry.phase } };
         }
-        return { content: [{ type: "text", text: `Group ${group.id} · ${group.status} · ${group.activity}\n${group.presentation.entries.map(entry => `${entry.runId} · ${entry.phase}${group.errors?.[entry.runId] ? ` · ${group.errors[entry.runId]}` : ""}`).join("\n")}` }], details: group, isError: group.status === "failed", usage: usageForRuns(group.steps, ctx.sessionManager.getBranch()) };
+        return { content: [{ type: "text", text: groupSummary(group) }], details: group, isError: group.status === "failed", usage: usageForRuns(group.steps, ctx.sessionManager.getBranch()) };
       }
       if (owningGroup && owningGroup.presentation.entries.find(entry => entry.runId === id)?.phase !== "run") {
         const entry = owningGroup.presentation.entries.find(entry => entry.runId === id)!;

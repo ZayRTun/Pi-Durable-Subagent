@@ -196,9 +196,13 @@ try:
         else: assert '0/3 done' in paused and 'Pending' in paused,'Paused work does not advance or count as done'
         if label=='Chain':
             os.write(master,b'continue group\r');drain(7)
+            os.write(master,b'inspect group\r');drain(.5)
             continued,_=capture('group-continued')
-            assert '3/3 done' in continued and 'Pending' not in continued,'Final continuation advances held dependencies'
-            assert continued.count('Delegation · '+label)==2,'Completion receipts remove sticky group, leaving two transcript tool calls'
+            assert '3/3 done' in continued,'Final continuation advances held dependencies'
+            assert continued.split(' inspect group')[-1].count('Delegation · '+label)==1,'Completion receipts remove sticky group after retained inspection'
+            os.write(master,b'\x0f');drain(.2)
+            final_expanded,_=capture('group-completed-markdown')
+            assert 'Changes' in final_expanded,'Native group expansion renders completed Markdown'
         else:
             os.write(master,b'cancel supervised\r');drain(1)
             cancelled,_=capture('group-cancelled')

@@ -26,6 +26,11 @@ export default function tuiFixture(pi: ExtensionAPI) {
         const id = start?.role === "toolResult" ? (start.details as { id: string }).id : "";
         return fauxAssistantMessage([fauxToolCall("subagent_cancel", { run: id }, { id: "cancel-background" })], { stopReason: "toolUse" });
       }
+      if (task.includes("inspect group")) {
+        const start = context.messages.find(message => message.role === "toolResult" && message.toolName === "subagent");
+        const id = start?.role === "toolResult" ? (start.details as { id: string }).id : "";
+        return fauxAssistantMessage([fauxToolCall("subagent_status", { run: id }, { id: "inspect-group" })], { stopReason: "toolUse" });
+      }
       if (task.includes("continue group")) {
         const start = context.messages.find(message => message.role === "toolResult" && message.toolName === "subagent");
         const id = start?.role === "toolResult" ? (start.details as { steps: { id: string }[] }).steps[0].id : "";

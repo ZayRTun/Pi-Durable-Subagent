@@ -252,7 +252,8 @@ export class Runtime {
       : steps.some(run => run.status === "interrupted") || group.presentation.entries.some(entry => entry.phase === "pending") ? "interrupted"
       : Object.keys(group.errors ?? {}).length || steps.some(run => run.status === "failed") ? "failed"
       : steps.some(run => run.status === "aborted") ? "aborted" : "succeeded";
-    return { ...group, presentation: { ...group.presentation, entries: group.presentation.entries.map(entry => ({ ...entry })) }, steps,
+    const started = new Set(steps.map(run => run.id));
+    return { ...group, seeds: group.seeds.map(seed => ({ ...seed })), ...(group.errors ? { errors: { ...group.errors } } : {}), presentation: { ...group.presentation, entries: group.presentation.entries.map(entry => ({ ...entry, ...(started.has(entry.runId) ? { phase: "run" as const } : {}) })) }, steps,
       status, activity: status === "paused" ? "Dependent steps held pending explicit continuation" : status === "interrupted" ? "Awaiting explicit recovery; pending steps remain stopped" : status === "running" ? "Group executing" : status === "succeeded" ? "Group completed" : "Group stopped" };
   }
   /** Uses the same execution engine and its actual-child admission, never queues capacity failures. */
@@ -281,22 +282,25 @@ export class Runtime {
       let existing: Run | undefined;
       try { existing = await this.status(child.id, group.sessionId); }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-      if (existing && child.id !== options.resumeId) return existing;
+      if (existing && child.id !== options.resumeId) { entry.phase = "run"; return existing; }
       if (group.presentation.mode === "chain" && index > 0 && !existing) {
         const previous = await this.status(group.seeds[index - 1].id, group.sessionId);
         if (previous.status !== "succeeded") return;
-        child = { ...child, task: `${child.task}\n\nAnswer from the previous step in this chain:\n${previous.output ?? ""}` };
+        child = { ...child, task: `${entry.requestedTask}\n\nAnswer from the previous step in this chain:\n${previous.output ?? ""}` };
         group.seeds[index] = child;
       }
       const childOptions = await options.optionsForRun(child);
       if (group.cancelled || controller.signal.aborted || this.closing || group.presentation.entries[index].phase === "not-run") return;
       try {
         const result = await this.execute(child, { ...childOptions, signal: controller.signal,
-          onAdmitted: run => { entry.phase = "run"; void persist(); admit(); childOptions.onAdmitted?.(run); },
-          onUpdate: run => { childOptions.onUpdate?.(run); void publish(); },
+          onAdmitted: run => { entry.phase = "run"; void persist().catch(() => controller.abort("shutdown")); admit(); childOptions.onAdmitted?.(run); },
+          onUpdate: run => { childOptions.onUpdate?.(run); void publish().catch(() => controller.abort("shutdown")); },
         });
         entry.phase = "run"; await persist(); await publish(); return result;
       } catch (error) {
+        // A refused explicit continuation leaves its stopped child and dependencies intact.
+        // It is not an admission to a new step and never creates a hidden retry queue.
+        if (existing) throw error;
         entry.phase = "not-run";
         (group.errors ??= {})[child.id] = error instanceof Error ? error.message : String(error);
         await persist(); await publish();
@@ -336,6 +340,8 @@ export class Runtime {
   async cancelGroup(id: string, sessionId: string, childId?: string): Promise<GroupSnapshot> {
     const group = this.groups.get(id)?.group ?? await this.readGroup(id);
     if (!group || group.sessionId !== sessionId) throw new Error("Group belongs to another Pi session or does not exist");
+    const snapshot = await this.groupStatus(id, sessionId);
+    group.presentation = snapshot.presentation;
     if (!childId) { group.cancelled = true; this.groups.get(id)?.controller.abort("cancelled"); }
     for (const [index, seed] of group.seeds.entries()) {
       if (childId && seed.id !== childId) continue;
