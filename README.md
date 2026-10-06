@@ -252,9 +252,12 @@ Cancellation/explicit execution deadlines are cooperative: a third-party tool th
 ```sh
 npm run typecheck
 npm test
+npm run test:workspace:stress
 ```
 
-The full suite currently passes **187 tests**. Final combined acceptance evidence is recorded in [the supervised delegation acceptance report](benchmarks/supervised-delegation-acceptance.md). The report separates offline scripted-provider coverage, installed SDK and host behavior, native terminal evidence, and independent Tasks/pstack checks. Scripted provider results establish protocol behavior, not live model quality or obedience. The original 127-test count describes the historical baseline only.
+GitHub runs these checks automatically on pushes and pull requests. See [automatic checks](docs/agents/checks.md) for stress options and retained failure logs.
+
+The full suite currently passes **213 tests**. Final combined acceptance evidence is recorded in [the supervised delegation acceptance report](benchmarks/supervised-delegation-acceptance.md). The report separates offline scripted-provider coverage, installed SDK and host behavior, native terminal evidence, and independent Tasks/pstack checks. Scripted provider results establish protocol behavior, not live model quality or obedience. The original 127-test count describes the historical baseline only.
 
 The extension uses `createModels` from Pi AI's root export: Pi 1.0's unbundled loader aliases that root to its compatibility entrypoint, which does not correctly resolve arbitrary `/models` subpath imports. Host-provided Pi AI, coding-agent, and TUI packages are pinned peers with matching development dependencies; the extension does not declare them as runtime dependencies.
 

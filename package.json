@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "test": "node --experimental-strip-types --test test/*.test.ts",
+    "test:workspace:stress": "node scripts/stress-worktree-host.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

@@ -1,0 +1,40 @@
+name: Checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22.22.2'
+          cache: npm
+      - run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Regression suite
+        run: npm test
+      - name: Parallel worktree stress
+        if: ${{ !cancelled() }}
+        run: npm run test:workspace:stress
+      - name: Retain stress results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: worktree-stress-results
+          path: test-results/worktree-stress/
+          if-no-files-found: ignore
+          retention-days: 7
