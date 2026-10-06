@@ -1,5 +1,8 @@
 import { formatContextHealth } from "./context-health.ts";
 import { join, resolve } from "node:path";
+import { lstat, realpath } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { Type, type Usage } from "@earendil-works/pi-ai";
 import { getAgentDir, type ExtensionAPI, type ExtensionContext, type ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { Container, MouseRegion, getKeybindings, matchesKey, type TuiMouseEvent } from "@earendil-works/pi-tui";
@@ -18,6 +21,30 @@ import { Notifications, NOTIFICATION_TYPE, type Delivery } from "./notifications
 
 /** The nesting limit for delegated Sub-agents. */
 const MAX_DEPTH = 3;
+const execFileAsync = promisify(execFile);
+
+/** Refuse to bind retained work to a missing, moved, replaced, or symlinked checkout. */
+async function validateRetainedWorktree(run: Run): Promise<void> {
+  const worktree = run.worktree;
+  if (!worktree) return;
+  const expectedPath = resolve(worktree.path);
+  const failure = () => new Error(`Retained worktree for Run ${run.id} is unavailable or changed. Expected checkout ${expectedPath} on branch ${worktree.branch}. Restore that checkout or start a new delegation; tools will not use the parent workspace.`);
+  try {
+    if (resolve(run.cwd) !== expectedPath) throw failure();
+    const info = await lstat(expectedPath);
+    if (!info.isDirectory() || info.isSymbolicLink()) throw failure();
+    const canonical = await realpath(expectedPath);
+    if (canonical !== expectedPath) throw failure();
+    const [top, branch] = await Promise.all([
+      execFileAsync("git", ["-C", expectedPath, "rev-parse", "--show-toplevel"], { encoding: "utf8" }),
+      execFileAsync("git", ["-C", expectedPath, "branch", "--show-current"], { encoding: "utf8" }),
+    ]);
+    if (resolve(top.stdout.trim()) !== expectedPath || branch.stdout.trim() !== worktree.branch) throw failure();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).message?.startsWith("Retained worktree for Run ")) throw error;
+    throw failure();
+  }
+}
 
 /** Token and cost readings that fit on one line; empty when the run recorded no usage. */
 function usageReading(usage: Usage | undefined): string {
@@ -320,6 +347,7 @@ export default async function durableSubagent(pi: ExtensionAPI) {
     };
     if (ctx.mode === "tui") startHeartbeat(options.callbackId);
     const executionOptions = async (seed: Run, entryIndex: number) => {
+      await validateRetainedWorktree(seed);
       let previous: Run | undefined;
       try { previous = await runtime.read(seed.id); }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
@@ -541,6 +569,7 @@ export default async function durableSubagent(pi: ExtensionAPI) {
       const sessionId = ctx.sessionManager.getSessionId();
       const previous = await runtime.status(args.run, sessionId);
       if (previous.cwd !== ctx.cwd && !previous.worktree) throw new Error("Run belongs to another working directory");
+      await validateRetainedWorktree(previous);
       const id = runId(sessionId, `followup:${toolCallId}`);
       const depth = previous.delegationDepth ?? 0;
       const nested = depth < MAX_DEPTH ? {
@@ -551,7 +580,11 @@ export default async function durableSubagent(pi: ExtensionAPI) {
       } : undefined;
       const update = (run: Run) => { observeRun(run, ctx); onUpdate?.({ content: [{ type: "text", text: `Run ${run.id} · ${run.status} · ${run.activity}` }], details: run }); };
       const run = await runtime.followUp(args.run, { executionId: id, sessionId, task: args.task, reuse: args.reuse, fresh: args.fresh, nonblocking: args.nonblocking }, {
-        models: bridgeModels(ctx.modelRegistry, args.fresh ? id : previous.conversationId ?? previous.id), tools: bridgeTools(previous.agent, ctx, nested), signal, onUpdate: update,
+        models: bridgeModels(ctx.modelRegistry, args.fresh ? id : previous.conversationId ?? previous.id),
+        tools: bridgeTools(previous.agent, ctx, nested, previous.worktree ? { cwd: previous.cwd } : undefined,
+          new Set(pi.getAllTools().filter(tool => tool.sourceInfo.path.startsWith("builtin:")).map(tool => tool.name)),
+          new Set(pi.getAllTools().filter(tool => tool.namespace?.instructions?.trim() === WORKSPACE_INDEPENDENT_TOOL_INSTRUCTION).map(tool => tool.name))),
+        signal, onUpdate: update,
       });
       observeRun(run, ctx);
       return { content: [{ type: "text", text: `Run ${run.id} · ${run.status} · conversation ${run.conversationId ?? run.id}\n${run.output ?? run.activity}\n${formatContextHealth(run.contextHealth!)}` }], details: run, isError: run.status === "failed", usage: run.nonblocking ? undefined : usageToReport(run, ctx.sessionManager.getBranch()) };
