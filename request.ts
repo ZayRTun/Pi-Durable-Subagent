@@ -155,7 +155,6 @@ export function parseDelegationRequest(args: Record<string, unknown>): Delegatio
     return { kind: "resume", runId: args.resume };
   }
   if (args.nonblocking !== undefined && typeof args.nonblocking !== "boolean") throw new Error("nonblocking must be boolean");
-  if (args.nonblocking && (args.tasks !== undefined || args.chain !== undefined)) throw new Error("Nonblocking start currently requires one task; no work is queued");
   if (args.reassessment !== undefined) throw new Error("reassessment requires resume");
   const defaults = parseSelection(args, "");
   const worktree = parseWorktree(args);
@@ -164,11 +163,11 @@ export function parseDelegationRequest(args: Record<string, unknown>): Delegatio
       if (args[key] !== undefined) throw new Error(`Specify either ${key} or chain, not both`);
     }
     if (worktree) throw new Error("chain runs its steps in order in the caller's directory; worktree isolation would hide one step's changes from the next");
-    return { kind: "delegate", steps: parseSteps(args.chain, defaults, "chain"), mode: "chain" };
+    return { kind: "delegate", steps: parseSteps(args.chain, defaults, "chain"), mode: "chain", ...(args.nonblocking ? { nonblocking: true } : {}) };
   }
   if (args.tasks !== undefined) {
     if (args.task !== undefined) throw new Error("Specify either task or tasks, not both");
-    return { kind: "delegate", steps: parseSteps(args.tasks, defaults, "tasks"), mode: "steps", ...(worktree ? { worktree } : {}) };
+    return { kind: "delegate", steps: parseSteps(args.tasks, defaults, "tasks"), mode: "steps", ...(args.nonblocking ? { nonblocking: true } : {}), ...(worktree ? { worktree } : {}) };
   }
   if (!defaults.agent || typeof args.task !== "string" || !args.task.trim()) throw new Error("A new delegation requires agent and task");
   const step: DelegationStep = { agent: defaults.agent, task: args.task, ...(defaults.handoffRetryPolicy ? { handoffRetryPolicy: defaults.handoffRetryPolicy } : {}),

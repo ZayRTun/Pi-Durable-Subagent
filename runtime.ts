@@ -6,6 +6,7 @@ import { createModels, type Models, type Usage, type AssistantMessage } from "@e
 import { AssistantEntry, UserEntry, createRegistry, defineExtension, Harness, type LiveState, type UsageState, type ToolRegistration } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import lockfile from "proper-lockfile";
+import type { DelegationPresentation } from "./presentation.ts";
 import type { AgentDefinition } from "./agents.ts";
 import { subagentInstructions } from "./prompt.ts";
 import { collectToolArguments, describeActivity, reconcileToolDiagnostics, toolActivity } from "./activity.ts";
@@ -22,6 +23,8 @@ export interface Run {
   task: string;
   /** Explicitly detached from the starting parent tool call. */
   nonblocking?: boolean;
+  /** Owning requested group; unstarted dependencies live in its separate durable record. */
+  groupId?: string;
   /** Effective execution allowance; null explicitly removes the deadline. Absent on historical records. */
   timeoutMinutes?: number | null;
   cwd: string;
@@ -73,6 +76,28 @@ export interface ExecuteOptions {
   continuation?: { reassessment: string; timeoutMinutes: number | null };
   recoveryApproved?: boolean;
 }
+export interface Group {
+  version: 1;
+  id: string;
+  sessionId: string;
+  nonblocking: boolean;
+  seeds: Run[];
+  presentation: DelegationPresentation;
+  cancelled?: boolean;
+  errors?: Record<string, string>;
+}
+export interface GroupSnapshot extends Group {
+  steps: Run[];
+  status: RunStatus;
+  activity: string;
+}
+export interface GroupOptions {
+  optionsForRun: (run: Run) => ExecuteOptions | Promise<ExecuteOptions>;
+  onUpdate?: (group: GroupSnapshot) => void;
+  signal?: AbortSignal;
+  /** Only this stopped child is authorized to continue/recover. */
+  resumeId?: string;
+}
 const context = BACKGROUND_CONTEXT;
 const terminal = (run: Run) => isTerminal(run);
 export function runId(sessionId: string, toolCallId: string) {
@@ -105,6 +130,7 @@ export class Runtime {
   /** Latest in-memory snapshot per active run, so inspection shows live progress instead of the start record. */
   private live = new Map<string, Run>();
   private steering = new Map<string, (guidance: string) => Promise<Run>>();
+  private groups = new Map<string, { group: Group; done: Promise<GroupSnapshot>; controller: AbortController }>();
   private closing = false;
   readonly maxActive: number;
   constructor(directory: string, options: { maxActive?: number } = {}) {
@@ -173,6 +199,142 @@ export class Runtime {
       runs.push(this.active.has(id) ? { ...(this.live.get(id) ?? run) } : run);
     }
     return runs.sort((a, b) => b.createdAt - a.createdAt);
+  }
+  private groupPath(id: string) { validateId(id); return join(this.directory, ".groups", `${id}.json`); }
+  private async saveGroup(group: Group) {
+    await mkdir(join(this.directory, ".groups"), { recursive: true, mode: 0o700 });
+    const file = this.groupPath(group.id), temp = `${file}.${randomUUID()}.tmp`;
+    await writeFile(temp, JSON.stringify(group), { mode: 0o600 }); await rename(temp, file);
+  }
+  async readGroup(id: string): Promise<Group | undefined> {
+    try {
+      const group: Group = JSON.parse(await readFile(this.groupPath(id), "utf8"));
+      if (group.version !== 1 || group.id !== id) throw new Error("Unsupported group metadata");
+      return group;
+    } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined; throw error; }
+  }
+  async listGroups(sessionId: string): Promise<Group[]> {
+    let files: string[];
+    try { files = await readdir(join(this.directory, ".groups")); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return []; throw error; }
+    const groups = await Promise.all(files.filter(file => /^[a-f0-9]{32}\.json$/.test(file)).map(file => this.readGroup(file.slice(0, 32))));
+    return groups.filter((group): group is Group => !!group && group.sessionId === sessionId);
+  }
+  async groupForChild(id: string, sessionId: string): Promise<Group | undefined> {
+    return (await this.listGroups(sessionId)).find(group => group.seeds.some(seed => seed.id === id));
+  }
+  async groupStatus(id: string, sessionId: string): Promise<GroupSnapshot> {
+    const group = this.groups.get(id)?.group ?? await this.readGroup(id);
+    if (!group) throw new Error("Unknown group handle");
+    if (group.sessionId !== sessionId) throw new Error("Group belongs to another Pi session");
+    const steps: Run[] = [];
+    for (const seed of group.seeds) {
+      try { steps.push(await this.status(seed.id, sessionId)); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+    }
+    const status: RunStatus = steps.some(run => ["running", "pausing", "preparing-handoff"].includes(run.status)) ? "running"
+      : group.cancelled ? "aborted" : steps.some(run => run.status === "paused") ? "paused"
+      : steps.some(run => run.status === "interrupted") || group.presentation.entries.some(entry => entry.phase === "pending") ? "interrupted"
+      : Object.keys(group.errors ?? {}).length || steps.some(run => run.status === "failed") ? "failed"
+      : steps.some(run => run.status === "aborted") ? "aborted" : "succeeded";
+    return { ...group, presentation: { ...group.presentation, entries: group.presentation.entries.map(entry => ({ ...entry })) }, steps,
+      status, activity: status === "paused" ? "Dependent steps held pending explicit continuation" : status === "interrupted" ? "Awaiting explicit recovery; pending steps remain stopped" : status === "running" ? "Group executing" : status === "succeeded" ? "Group completed" : "Group stopped" };
+  }
+  /** Uses the same execution engine and its actual-child admission, never queues capacity failures. */
+  async executeGroup(seed: Group, options: GroupOptions, detached = false): Promise<GroupSnapshot> {
+    if (this.closing) throw new Error("Runtime is shutting down");
+    if (this.groups.has(seed.id)) throw new Error("This group is already executing");
+    const stored = await this.readGroup(seed.id);
+    const group = stored ?? seed;
+    if (group.sessionId !== seed.sessionId) throw new Error("Group belongs to another Pi session");
+    if (group.cancelled) return this.groupStatus(group.id, group.sessionId);
+    await this.saveGroup(group);
+    // Recheck after persistence so concurrent calls cannot supervise the same graph twice.
+    if (this.closing || this.groups.has(seed.id)) throw new Error("Group unavailable or already executing");
+    const controller = new AbortController();
+    let admit!: () => void;
+    const ready = new Promise<void>(resolve => { admit = resolve; });
+    const abort = () => controller.abort("cancelled");
+    if (!detached) { options.signal?.addEventListener("abort", abort, { once: true }); if (options.signal?.aborted) abort(); }
+    let writes = Promise.resolve();
+    const persist = () => { writes = writes.then(() => this.saveGroup(group)); return writes; };
+    const publish = async () => { const snapshot = await this.groupStatus(group.id, group.sessionId); options.onUpdate?.(snapshot); return snapshot; };
+    const runChild = async (index: number) => {
+      const entry = group.presentation.entries[index];
+      if (group.cancelled || controller.signal.aborted || this.closing || entry.phase === "not-run") return;
+      let child = group.seeds[index];
+      let existing: Run | undefined;
+      try { existing = await this.status(child.id, group.sessionId); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+      if (existing && child.id !== options.resumeId) return existing;
+      if (group.presentation.mode === "chain" && index > 0 && !existing) {
+        const previous = await this.status(group.seeds[index - 1].id, group.sessionId);
+        if (previous.status !== "succeeded") return;
+        child = { ...child, task: `${child.task}\n\nAnswer from the previous step in this chain:\n${previous.output ?? ""}` };
+        group.seeds[index] = child;
+      }
+      const childOptions = await options.optionsForRun(child);
+      try {
+        const result = await this.execute(child, { ...childOptions, signal: controller.signal,
+          onAdmitted: run => { entry.phase = "run"; void persist(); admit(); childOptions.onAdmitted?.(run); },
+          onUpdate: run => { childOptions.onUpdate?.(run); void publish(); },
+        });
+        entry.phase = "run"; await persist(); await publish(); return result;
+      } catch (error) {
+        entry.phase = "not-run";
+        (group.errors ??= {})[child.id] = error instanceof Error ? error.message : String(error);
+        await persist(); await publish();
+      }
+    };
+    // Start in the next microtask, after the group owner is registered.
+    const done = Promise.resolve().then(async () => {
+      try {
+        if (group.presentation.mode === "parallel") await Promise.all(group.seeds.map((_, index) => runChild(index)));
+        else for (let index = 0; index < group.seeds.length; index++) {
+          const result = await runChild(index);
+          if (!result || result.status !== "succeeded") {
+            if (result?.status !== "paused" && result?.status !== "interrupted") for (const entry of group.presentation.entries.slice(index + 1)) if (entry.phase === "pending") entry.phase = "not-run";
+            break;
+          }
+        }
+        if (controller.signal.reason === "cancelled" || group.cancelled) for (const entry of group.presentation.entries) if (entry.phase === "pending") entry.phase = "not-run";
+        await persist(); return await publish();
+      } finally { options.signal?.removeEventListener("abort", abort); this.groups.delete(group.id); }
+    });
+    this.groups.set(group.id, { group, done, controller });
+    if (detached) { await Promise.race([ready, done]); return this.groupStatus(group.id, group.sessionId); }
+    return done;
+  }
+  async waitGroup(id: string, options: { sessionId: string; timeoutSeconds?: number; signal?: AbortSignal }): Promise<GroupSnapshot> {
+    await this.groupStatus(id, options.sessionId);
+    const seconds = options.timeoutSeconds ?? 60;
+    if (!Number.isFinite(seconds) || seconds < 0 || seconds > 3600) throw new Error("Wait duration must be between 0 and 3600 seconds");
+    const active = this.groups.get(id);
+    if (!active) return this.groupStatus(id, options.sessionId);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let abort!: () => void;
+    const boundary = new Promise<void>(resolve => { timer = setTimeout(resolve, seconds * 1000); abort = resolve; options.signal?.addEventListener("abort", abort, { once: true }); if (options.signal?.aborted) resolve(); });
+    try { await Promise.race([active.done, boundary]); return await this.groupStatus(id, options.sessionId); }
+    finally { clearTimeout(timer); options.signal?.removeEventListener("abort", abort); }
+  }
+  async cancelGroup(id: string, sessionId: string, childId?: string): Promise<GroupSnapshot> {
+    const group = this.groups.get(id)?.group ?? await this.readGroup(id);
+    if (!group || group.sessionId !== sessionId) throw new Error("Group belongs to another Pi session or does not exist");
+    if (!childId) { group.cancelled = true; this.groups.get(id)?.controller.abort("cancelled"); }
+    for (const [index, seed] of group.seeds.entries()) {
+      if (childId && seed.id !== childId) continue;
+      const entry = group.presentation.entries[index];
+      if (entry.phase === "pending") entry.phase = "not-run";
+      else if (entry.phase === "run") await this.cancel(seed.id);
+    }
+    // A cancelled dependency cannot advance an ordered/chain graph.
+    if (childId && group.presentation.mode !== "parallel") {
+      const index = group.seeds.findIndex(seed => seed.id === childId);
+      for (const entry of group.presentation.entries.slice(index + 1)) if (entry.phase === "pending") entry.phase = "not-run";
+    }
+    await this.saveGroup(group);
+    if (!childId) await this.groups.get(id)?.done;
+    return this.groupStatus(id, sessionId);
   }
   async execute(seed: Run, options: ExecuteOptions): Promise<Run> {
     if (this.closing) throw new Error("Runtime is shutting down");
@@ -550,8 +712,11 @@ export class Runtime {
   }
   async close(): Promise<void> {
     this.closing = true;
+    const groups = [...this.groups.values()];
+    groups.forEach(group => group.controller.abort("shutdown"));
     const active = [...this.active.values()];
     active.forEach((run) => run.stop());
     await Promise.allSettled(active.map((run) => run.done));
+    await Promise.allSettled(groups.map(group => group.done));
   }
 }

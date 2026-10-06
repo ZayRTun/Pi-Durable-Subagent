@@ -7,7 +7,7 @@ import { resolveAgentDirectories } from "./definition-config.ts";
 import { bridgeModels, bridgeTools } from "./adapters.ts";
 import { parseDelegationRequest, MAX_STEPS } from "./request.ts";
 import { loadModelConfig, resolveModel, writeModelConfig } from "./models.ts";
-import { Runtime, isTerminal, runId, type Run } from "./runtime.ts";
+import { Runtime, isTerminal, runId, type Run, type Group, type GroupSnapshot } from "./runtime.ts";
 import { formatCost } from "./cost.ts";
 import { clean, preview, renderGenericResult, renderGroup, renderRun, type RendererState } from "./ui.ts";
 import { type DelegationEntry, type DelegationMode, type DelegationPresentation } from "./presentation.ts";
@@ -88,6 +88,7 @@ export default async function durableSubagent(pi: ExtensionAPI) {
   let runtime = new Runtime(storage, { maxActive });
   let ownerLive = true;
   const stickyRuns = new Map<string, Run>();
+  const stickyGroups = new Map<string, GroupSnapshot>();
   const stickyState: RendererState = {};
   let stickyExpanded = false;
   let stickyRedraw: (() => void) | undefined;
@@ -100,7 +101,7 @@ export default async function durableSubagent(pi: ExtensionAPI) {
       else stickyRuns.set(run.id, run);
     }
     if (ctx.mode !== "tui") return;
-    if (!stickyRuns.size) {
+    if (!stickyRuns.size && !stickyGroups.size) {
       if (stickyInstalled) ctx.ui.setWidget("durable-subagents", undefined);
       stickyInstalled = false; stickyRedraw = undefined; return;
     }
@@ -121,7 +122,9 @@ export default async function durableSubagent(pi: ExtensionAPI) {
         handleMouse(event: TuiMouseEvent) { return component.handleMouse(event); },
         render(width) {
           component = new Container();
+          for (const group of stickyGroups.values()) component.addChild(renderGroup(group.presentation, group.steps, stickyExpanded, theme, { active: group.status === "running", state: stickyState, invalidate: redraw }));
           for (const item of stickyRuns.values()) {
+            if (item.groupId && stickyGroups.has(item.groupId)) continue;
             const expanded = stickyState.childExpanded?.[item.id] ?? stickyExpanded;
             component.addChild(new MouseRegion(renderRun(item, expanded, theme, { active: true, state: stickyState, invalidate: redraw }), event => {
               if (event.type !== "click" || event.button !== "left") return undefined;
@@ -133,6 +136,13 @@ export default async function durableSubagent(pi: ExtensionAPI) {
         }, dispose,
       };
     }, { placement: "aboveEditor" });
+  };
+  const updateStickyGroup = (group: GroupSnapshot, ctx: ExtensionContext) => {
+    if (!ownerLive || !group.nonblocking) return;
+    if (group.status === "aborted" || group.status === "interrupted") stickyGroups.delete(group.id);
+    else stickyGroups.set(group.id, group);
+    const child = group.steps[0];
+    if (child) updateSticky(child, ctx);
   };
   const approvedResumes = new Set<string>();
   const interruptedRuns = new Set<string>();
@@ -174,13 +184,15 @@ export default async function durableSubagent(pi: ExtensionAPI) {
     const request = parseDelegationRequest(args);
     if (request.kind === "delegate" && request.nonblocking && options.nested) throw new Error("Nonblocking start must be owned by the parent session");
     const seeds: Run[] = [];
+    let storedGroup: Group | undefined;
     const notes = new Map<string, string>();
     const retrieved = new Set<string>();
     if (request.kind === "resume") {
       const seed = await runtime.read(request.runId);
       if (seed.sessionId !== sessionId || seed.cwd !== ctx.cwd && !seed.worktree) throw new Error("Run belongs to another Pi session or working directory");
       if (seed.status === "succeeded" || seed.status === "aborted" || (seed.status === "paused" && !request.continuation)) retrieved.add(seed.id);
-      seeds.push(seed);
+      storedGroup = seed.groupId ? await runtime.readGroup(seed.groupId) : undefined;
+      seeds.push(...(storedGroup?.seeds ?? [seed]));
     } else {
       const loaded = await loadAgents(definitions);
       const { config } = await loadModelConfig(configPath);
@@ -208,10 +220,10 @@ export default async function durableSubagent(pi: ExtensionAPI) {
     // `single` has no group header; the other modes describe how the requested steps relate. A
     // worktree run is concurrent, a chain hands each answer to the next step, and plain steps run
     // one at a time. None of this is inferred from the tasks alone.
-    const mode: DelegationMode = request.kind === "resume" || request.steps.length === 1
+    const mode: DelegationMode = storedGroup?.presentation.mode ?? (request.kind === "resume" || request.steps.length === 1
       ? "single"
-      : request.mode === "chain" ? "chain" : request.worktree ? "parallel" : "ordered";
-    const entries: DelegationEntry[] = seeds.map((seed, index) => ({
+      : request.mode === "chain" ? "chain" : request.worktree ? "parallel" : "ordered");
+    const entries: DelegationEntry[] = storedGroup?.presentation.entries.map(entry => ({ ...entry })) ?? seeds.map((seed, index) => ({
       runId: seed.id, agent: seed.agent.name, color: seed.agent.color,
       // The original requested task, never the chained rewrite that executes.
       requestedTask: request.kind === "resume" ? seed.task : request.steps[index].task,
@@ -231,7 +243,7 @@ export default async function durableSubagent(pi: ExtensionAPI) {
       onUpdate({ content: [{ type: "text", text: lastActivity }], details });
     };
     if (ctx.mode === "tui") startHeartbeat(options.callbackId);
-    const executeSeed = async (seed: Run, entryIndex: number) => {
+    const executionOptions = async (seed: Run, entryIndex: number) => {
       let previous: Run | undefined;
       try { previous = await runtime.read(seed.id); }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
@@ -249,21 +261,21 @@ export default async function durableSubagent(pi: ExtensionAPI) {
           delegate(nestedArgs, { depth: options.depth + 1, callbackId: callId, signal: nestedSignal, ctx, nested: true,
             onUpdate: (update) => emit(update.content.map((part) => part.text).join("\n")) }),
       } : undefined;
-      const result = await (seed.nonblocking ? runtime.start.bind(runtime) : runtime.execute.bind(runtime))(seed, {
-        recoveryApproved, continuation: request.kind === "resume" ? request.continuation : undefined,
+      return {
+        recoveryApproved, continuation: request.kind === "resume" && request.runId === seed.id ? request.continuation : undefined,
         models: bridgeModels(ctx.modelRegistry, seed.id), tools: bridgeTools(seed.agent, ctx, nested), signal, nested: options.nested,
-        onUpdate: (run) => {
+        onUpdate: (run: Run) => {
           observeRun(run, ctx);
           liveById.set(run.id, run);
           entries[entryIndex].phase = "run";
           lastActivity = run.activity;
           emitUpdate();
         },
-      });
-      observeRun(result, ctx);
-      resultsById.set(result.id, result);
-      liveById.delete(result.id);
-      entries[entryIndex].phase = "run";
+      };
+    };
+    const executeSeed = async (seed: Run, entryIndex: number) => {
+      const result = await (seed.nonblocking ? runtime.start.bind(runtime) : runtime.execute.bind(runtime))(seed, await executionOptions(seed, entryIndex));
+      observeRun(result, ctx); resultsById.set(result.id, result); liveById.delete(result.id); entries[entryIndex].phase = "run";
       return result;
     };
     if (seeds.length === 1 && seeds[0].nonblocking) {
@@ -273,37 +285,26 @@ export default async function durableSubagent(pi: ExtensionAPI) {
       } finally { if (ctx.mode === "tui") stopHeartbeat(options.callbackId); }
     }
     let results: Run[] = [];
+    let groupSnapshot: GroupSnapshot | undefined;
+    const groupId = storedGroup?.id ?? runId(sessionId, `${options.callbackId}:group`);
+    const group: Group = storedGroup ?? { version: 1, id: groupId, sessionId, nonblocking: seeds.some(seed => seed.nonblocking),
+      seeds: seeds.map(seed => ({ ...seed, groupId })), presentation };
     try {
-      if (request.kind === "delegate" && request.mode === "chain") {
-        for (const [index, seed] of seeds.entries()) {
-          if (signal?.aborted) break;
-          const prior = results.at(-1);
-          const chained = prior?.output ? { ...seed, task: `${seed.task}\n\nAnswer from the previous step in this chain:\n${prior.output}` } : seed;
-          results.push(await executeSeed(chained, index));
-        }
-      } else if (request.kind === "delegate" && request.worktree) {
-        // Distinct checkouts give each step its own working directory, which is what makes this safe.
-        const settled = await Promise.allSettled(seeds.map((seed, index) => executeSeed(seed, index)));
-        const failure = settled.find((item) => item.status === "rejected");
-        if (failure?.status === "rejected") throw failure.reason;
-        results = settled.flatMap((item) => item.status === "fulfilled" ? [item.value] : []);
+      if (mode !== "single") {
+        groupSnapshot = await runtime.executeGroup(group, {
+          optionsForRun: seed => executionOptions(seed, seeds.findIndex(candidate => candidate.id === seed.id)), signal,
+          resumeId: request.kind === "resume" ? request.runId : undefined,
+          onUpdate: snapshot => { updateStickyGroup(snapshot, ctx); },
+        }, group.nonblocking);
+        results = groupSnapshot.steps;
+        presentation.entries = groupSnapshot.presentation.entries;
+        if (group.nonblocking) return { content: [{ type: "text", text: `Nonblocking Group ${group.id} · ${groupSnapshot.status}. Inspect, wait or cancel with its group handle; child handles target individual steps. Pending Ordered/Chain dependencies start only after successful final answers.` }], details: groupSnapshot, isError: groupSnapshot.status === "failed", usage: undefined };
       } else {
-        for (const [index, seed] of seeds.entries()) {
-          if (signal?.aborted) break;
-          results.push(await executeSeed(seed, index));
-        }
+        if (!signal?.aborted) results.push(await executeSeed(seeds[0], 0));
+        for (const entry of entries) entry.phase = resultsById.has(entry.runId) ? "run" : "not-run";
       }
-    } catch (error) {
-      // A thrown setup/abort error means the steps still pending will not start; publish that truth
-      // before propagating so the UI shows Not run rather than a queue that never moves.
-      for (const entry of entries) if (!resultsById.has(entry.runId) && !liveById.has(entry.runId)) entry.phase = "not-run";
       emitUpdate();
-      throw error;
-    } finally {
-      if (ctx.mode === "tui") stopHeartbeat(options.callbackId);
-    }
-    for (const entry of entries) entry.phase = resultsById.has(entry.runId) ? "run" : "not-run";
-    emitUpdate();
+    } finally { if (ctx.mode === "tui") stopHeartbeat(options.callbackId); }
     const branch = ctx.sessionManager.getBranch();
     const blocks = results.map((result, index) => {
       const body = result.status === "paused" ? [result.activity, result.handoff, result.handoffLimitation].filter(Boolean).join("\n\n") : result.status === "succeeded" ? result.output ?? result.activity : `${result.error ?? result.activity}${result.output ? `\nPartial answer:\n${result.output}` : ""}`;
@@ -318,7 +319,7 @@ export default async function durableSubagent(pi: ExtensionAPI) {
     const isolated = retained.length ? `\nIsolated checkouts of the caller's HEAD: ${retained.join("; ")}. Merge what you keep; they are retained, not removed.` : "";
     return {
       content: [{ type: "text", text: `${blocks.join("\n\n")}${unavailable.length ? `\nUnavailable declared tools: ${unavailable.join(", ")}` : ""}${unresolved}${isolated}` }],
-      details: mode === "single" && results[0] ? results[0] : { steps: results, presentation },
+      details: mode === "single" && results[0] ? results[0] : groupSnapshot ?? { steps: results, presentation },
       isError: results.length !== seeds.length || results.some((result) => result.status !== "succeeded" && result.status !== "paused"),
       // Pi automatically includes nested-tool usage; report only the Sub-agents' own model spend here.
       usage: usageForRuns(results, branch),
@@ -413,6 +414,18 @@ export default async function durableSubagent(pi: ExtensionAPI) {
     parameters: Type.Object({ ...handleParameters, ...(operation === "wait" ? { waitSeconds: Type.Optional(Type.Number({ minimum: 0, maximum: 3600 })) } : {}) }),
     async execute(_id, args, signal, _update, ctx) {
       const id = String(args.run); const sessionId = ctx.sessionManager.getSessionId();
+      const stored = await runtime.readGroup(id);
+      const owningGroup = stored ?? await runtime.groupForChild(id, sessionId);
+      if (stored || owningGroup && operation === "cancel") {
+        const group = operation === "cancel" ? await runtime.cancelGroup(owningGroup!.id, sessionId, stored ? undefined : id)
+          : operation === "wait" ? await runtime.waitGroup(id, { sessionId, timeoutSeconds: typeof args.waitSeconds === "number" ? args.waitSeconds : undefined, signal }) : await runtime.groupStatus(id, sessionId);
+        updateStickyGroup(group, ctx);
+        return { content: [{ type: "text", text: `Group ${group.id} · ${group.status} · ${group.activity}\n${group.presentation.entries.map(entry => `${entry.runId} · ${entry.phase}${group.errors?.[entry.runId] ? ` · ${group.errors[entry.runId]}` : ""}`).join("\n")}` }], details: group, isError: group.status === "failed" };
+      }
+      if (owningGroup && owningGroup.presentation.entries.find(entry => entry.runId === id)?.phase !== "run") {
+        const entry = owningGroup.presentation.entries.find(entry => entry.runId === id)!;
+        return { content: [{ type: "text", text: `Child ${id} · ${entry.phase === "pending" ? "Pending dependency" : "Not run"}` }], details: { id, groupId: owningGroup.id, phase: entry.phase, status: entry.phase } };
+      }
       await runtime.status(id, sessionId);
       if (operation === "cancel") await runtime.cancel(id);
       const run = operation === "wait" ? await runtime.wait(id, { sessionId, timeoutSeconds: typeof args.waitSeconds === "number" ? args.waitSeconds : undefined, signal }) : await runtime.status(id, sessionId);
@@ -550,7 +563,7 @@ export default async function durableSubagent(pi: ExtensionAPI) {
     ownerLive = false;
     await runtime.close();
     runtime = new Runtime(storage, { maxActive });
-    stickyDispose?.(); stickyDispose = undefined; stickyRuns.clear(); stickyInstalled = false; stickyRedraw = undefined;
+    stickyDispose?.(); stickyDispose = undefined; stickyRuns.clear(); stickyGroups.clear(); stickyInstalled = false; stickyRedraw = undefined;
     if (ctx.mode === "tui") ctx.ui.setWidget("durable-subagents", undefined);
     ownerLive = true;
     approvedResumes.clear();
@@ -560,6 +573,7 @@ export default async function durableSubagent(pi: ExtensionAPI) {
       if (run.status === "interrupted") interruptedRuns.add(run.id);
       if (run.nonblocking && run.status === "paused") updateSticky(run, ctx);
     }
+    for (const group of await runtime.listGroups(ctx.sessionManager.getSessionId())) if (group.nonblocking) updateStickyGroup(await runtime.groupStatus(group.id, group.sessionId), ctx);
     pendingStatus(ctx);
     const count = interruptedRuns.size;
     if (count && ctx.hasUI) ctx.ui.notify(`${count} interrupted subagent run${count === 1 ? "" : "s"}. Use /subagents to inspect and explicitly resume.`, "info");
@@ -568,7 +582,7 @@ export default async function durableSubagent(pi: ExtensionAPI) {
   });
   pi.on("session_shutdown", async (_event, ctx) => {
     ownerLive = false;
-    stickyDispose?.(); stickyDispose = undefined; stickyRuns.clear(); stickyInstalled = false; stickyRedraw = undefined;
+    stickyDispose?.(); stickyDispose = undefined; stickyRuns.clear(); stickyGroups.clear(); stickyInstalled = false; stickyRedraw = undefined;
     if (ctx.mode === "tui") ctx.ui.setWidget("durable-subagents", undefined);
     clearInterval(heartbeat);
     heartbeat = undefined;
