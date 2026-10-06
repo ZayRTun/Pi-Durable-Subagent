@@ -237,7 +237,7 @@ export default async function durableSubagent(pi: ExtensionAPI) {
         const branch = named ? (request.steps.length === 1 ? named : `${named}-${index + 1}`) : undefined;
         const label = `${id.slice(0, 10)}${request.steps.length > 1 ? `-${index + 1}` : ""}`;
         const worktree = request.worktree ? await createWorktree(ctx.cwd, { label, ...(branch ? { branch } : {}), ...(request.worktree.base ? { base: request.worktree.base } : {}) }) : undefined;
-        seeds.push({ version: 1, id, sessionId, agent, task: step.task, ...(step.handoffRetryPolicy ? { handoffRetryPolicy: step.handoffRetryPolicy } : {}), timeoutMinutes: step.timeoutMinutes !== undefined ? step.timeoutMinutes : agent.timeoutMinutes ?? null,
+        seeds.push({ version: 1, id, sessionId, delegationDepth: options.depth, agent, task: step.task, ...(step.handoffRetryPolicy ? { handoffRetryPolicy: step.handoffRetryPolicy } : {}), timeoutMinutes: step.timeoutMinutes !== undefined ? step.timeoutMinutes : agent.timeoutMinutes ?? null,
           cwd: worktree?.path ?? ctx.cwd, model: resolved.model, ...(resolved.pool ? { role: resolved.pool } : {}),
           ...(worktree ? { worktree: { path: worktree.path, branch: worktree.branch } } : {}),
           thinking: agent.thinking ?? ctx.thinkingLevel ?? pi.getThinkingLevel(),
@@ -283,15 +283,16 @@ export default async function durableSubagent(pi: ExtensionAPI) {
         }
         recoveryApproved = true;
       }
-      const nested = options.depth < MAX_DEPTH ? {
+      const depth = seed.delegationDepth ?? options.depth;
+      const nested = depth < MAX_DEPTH ? {
         prefix: seed.id, parameters, description: nestedDescription,
         run: (callId: string, nestedArgs: Record<string, unknown>, nestedSignal: AbortSignal | undefined, emit: (text: string) => void) =>
-          delegate(nestedArgs, { depth: options.depth + 1, callbackId: callId, signal: nestedSignal, ctx, nested: true,
+          delegate(nestedArgs, { depth: depth + 1, callbackId: callId, signal: nestedSignal, ctx, nested: true,
             onUpdate: (update) => emit(update.content.map((part) => part.text).join("\n")) }),
       } : undefined;
       const result = await (seed.nonblocking ? runtime.start.bind(runtime) : runtime.execute.bind(runtime))(seed, {
         recoveryApproved, continuation: request.kind === "resume" ? request.continuation : undefined,
-        models: bridgeModels(ctx.modelRegistry, seed.id), tools: bridgeTools(seed.agent, ctx, nested), signal, nested: options.nested,
+        models: bridgeModels(ctx.modelRegistry, seed.conversationId ?? seed.id), tools: bridgeTools(seed.agent, ctx, nested), signal, nested: options.nested,
         onUpdate: (run) => {
           observeRun(run, ctx);
           liveById.set(run.id, run);
@@ -461,12 +462,42 @@ export default async function durableSubagent(pi: ExtensionAPI) {
     },
   });
   pi.registerTool({
+    name: "subagent_followup", label: "Subagent follow-up", exposure: "model-only",
+    description: "Assign a new task to a completed child under a distinct execution handle. Retains conversation by default with frozen Agent/model/tools/workspace; inspect context first, choose reuse:true after a warning or fresh:true for fresh context. Active work requires steering. Previous results remain available by their original handles.",
+    parameters: Type.Object({ ...handleParameters, task: Type.String({ minLength: 1 }), reuse: Type.Optional(Type.Boolean()), fresh: Type.Optional(Type.Boolean()), nonblocking: Type.Optional(Type.Boolean()) }, { additionalProperties: false }),
+    async execute(toolCallId, args, signal, onUpdate, ctx) {
+      for (const key of Object.keys(args)) if (!["run", "task", "reuse", "fresh", "nonblocking"].includes(key)) throw new Error(`Follow-up cannot replace authority: ${key}`);
+      const sessionId = ctx.sessionManager.getSessionId();
+      const previous = await runtime.status(args.run, sessionId);
+      if (previous.cwd !== ctx.cwd && !previous.worktree) throw new Error("Run belongs to another working directory");
+      const id = runId(sessionId, `followup:${toolCallId}`);
+      const depth = previous.delegationDepth ?? 0;
+      const nested = depth < MAX_DEPTH ? {
+        prefix: id, parameters, description: nestedDescription,
+        run: (callId: string, nestedArgs: Record<string, unknown>, nestedSignal: AbortSignal | undefined, emit: (text: string) => void) =>
+          delegate(nestedArgs, { depth: depth + 1, callbackId: callId, signal: nestedSignal, ctx, nested: true,
+            onUpdate: update => emit(update.content.map(part => part.text).join("\n")) }),
+      } : undefined;
+      const update = (run: Run) => { observeRun(run, ctx); onUpdate?.({ content: [{ type: "text", text: `Run ${run.id} · ${run.status} · ${run.activity}` }], details: run }); };
+      const run = await runtime.followUp(args.run, { executionId: id, sessionId, task: args.task, reuse: args.reuse, fresh: args.fresh, nonblocking: args.nonblocking }, {
+        models: bridgeModels(ctx.modelRegistry, args.fresh ? id : previous.conversationId ?? previous.id), tools: bridgeTools(previous.agent, ctx, nested), signal, onUpdate: update,
+      });
+      observeRun(run, ctx);
+      return { content: [{ type: "text", text: `Run ${run.id} · ${run.status} · conversation ${run.conversationId ?? run.id}\n${run.output ?? run.activity}\n${formatContextHealth(run.contextHealth!)}` }], details: run, isError: run.status === "failed", usage: run.nonblocking ? undefined : usageToReport(run, ctx.sessionManager.getBranch()) };
+    },
+    renderResult(result, options, theme, context) {
+      const run = result.details as Run | undefined;
+      return run?.id ? renderRun(run, options.expanded, theme, { state: context.state as RendererState, invalidate: context.invalidate }) : renderGenericResult(result.content.map(part => part.type === "text" ? part.text : "").join("\n"), options.expanded);
+    },
+  });
+  pi.registerTool({
     name: "subagent_compact", label: "Compact retained subagent", exposure: "model-only",
     description: "Explicitly compact an idle completed or allowance-paused retained conversation. Reports applied, no-op, or failed; preserves historical answers and fixed authority. Does not guarantee reasoning quality.",
     parameters: Type.Object({ ...handleParameters, instructions: Type.Optional(Type.String()) }),
     async execute(toolCallId, args, signal, _update, ctx) {
       const operationId = runId(ctx.sessionManager.getSessionId(), `compact:${toolCallId}`);
-      const run = await runtime.compact(String(args.run), { sessionId: ctx.sessionManager.getSessionId(), models: bridgeModels(ctx.modelRegistry, String(args.run)), instructions: args.instructions, operationId, signal });
+      const target = await runtime.status(String(args.run), ctx.sessionManager.getSessionId());
+      const run = await runtime.compact(String(args.run), { sessionId: ctx.sessionManager.getSessionId(), models: bridgeModels(ctx.modelRegistry, target.conversationId ?? target.id), instructions: args.instructions, operationId, signal });
       const operation = run.compactions!.find(operation => operation.id === operationId)!;
       const delivered = ctx.sessionManager.getBranch().some(entry => {
         if (entry.type !== "message" || entry.message.role !== "toolResult" || entry.message.toolName !== "subagent_compact") return false;
@@ -509,7 +540,7 @@ export default async function durableSubagent(pi: ExtensionAPI) {
   // an execution that owns its workspace; unknown extension tools are conservatively effectful.
   pi.on("tool_call", (event, ctx) => {
     if (event.parentToolCallId || !runtime.ownsWorkspace(ctx.cwd)) return;
-    const safe = new Set(["read", "grep", "find", "ls", "subagent", "subagents_list", "subagent_status", "subagent_wait", "subagent_cancel", "subagent_compact", "subagent_steer", "worktree_list"]);
+    const safe = new Set(["read", "grep", "find", "ls", "subagent", "subagents_list", "subagent_status", "subagent_wait", "subagent_cancel", "subagent_compact", "subagent_followup", "subagent_steer", "worktree_list"]);
     if (!safe.has(event.toolName)) return { block: true, reason: "Active Sub-agent owns this workspace; wait or cancel before parent writes. Use isolated worktrees for concurrent writers." };
   });
 
