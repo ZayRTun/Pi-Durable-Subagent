@@ -6,6 +6,7 @@ import { createModels, type Models, type Usage, type AssistantMessage } from "@e
 import { AssistantEntry, UserEntry, createRegistry, defineExtension, Harness, type LiveState, type UsageState, type ToolRegistration } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import lockfile from "proper-lockfile";
+import { inspectContext, type ContextHealth } from "./context-health.ts";
 import type { AgentDefinition } from "./agents.ts";
 import { subagentInstructions } from "./prompt.ts";
 import { collectToolArguments, describeActivity, reconcileToolDiagnostics, toolActivity } from "./activity.ts";
@@ -57,6 +58,8 @@ export interface Run {
   steering?: { accepted: number; consumed: number; discarded: number; pending: number; latest?: { id: string; state: "accepted" | "consumed" | "discarded"; acceptedAt: number; consumedAt?: number } };
   error?: string;
   usage?: Usage;
+  contextHealth?: ContextHealth;
+  compactions?: { id: string; outcome: "applied" | "noop" | "failed"; error?: string; usage: Usage; at: number }[];
 }
 export interface ExecuteOptions {
   models: Models;
@@ -98,12 +101,24 @@ function modelUsage(models: Record<string, Usage>): Usage {
   }), { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } });
 }
 
+/** Compaction has its own accounting identity, separate from ordinary execution spend. */
+function executionUsage(models: Record<string, Usage>, run: Run): Usage {
+  const total = modelUsage(models);
+  for (const operation of run.compactions ?? []) {
+    for (const key of ["input", "output", "cacheRead", "cacheWrite", "totalTokens"] as const) total[key] = Math.max(0, total[key] - operation.usage[key]);
+    for (const key of ["input", "output", "cacheRead", "cacheWrite", "total"] as const) total.cost[key] = Math.max(0, total.cost[key] - operation.usage.cost[key]);
+  }
+  return total;
+}
+
 /** One SQLite harness per execution with awaited owner shutdown and no idle scheduler. */
 export class Runtime {
   readonly directory: string;
   private active = new Map<string, { stop: (reason?: string) => void; done: Promise<Run>; cwd: string; sessionId: string }>();
   /** Latest in-memory snapshot per active run, so inspection shows live progress instead of the start record. */
   private live = new Map<string, Run>();
+  private contextReaders = new Map<string, () => Promise<ContextHealth>>();
+  private managing = new Map<string, { stop: () => void; done: Promise<Run>; cwd: string; sessionId: string }>();
   private steering = new Map<string, (guidance: string) => Promise<Run>>();
   private closing = false;
   readonly maxActive: number;
@@ -113,7 +128,7 @@ export class Runtime {
     if (!Number.isInteger(this.maxActive) || this.maxActive < 1) throw new Error("Active capacity must be a positive integer");
   }
   /** Workspace ownership stays live after a detached start returns. */
-  ownsWorkspace(cwd: string): boolean { return [...this.active.values()].some(run => run.cwd === cwd); }
+  ownsWorkspace(cwd: string): boolean { return [...this.active.values(), ...this.managing.values()].some(run => run.cwd === cwd); }
   async status(id: string, sessionId: string): Promise<Run> {
     const run = this.live.get(id) ?? await this.read(id);
     if (run.sessionId !== sessionId) throw new Error("Run belongs to another Pi session");
@@ -176,6 +191,7 @@ export class Runtime {
   }
   async execute(seed: Run, options: ExecuteOptions): Promise<Run> {
     if (this.closing) throw new Error("Runtime is shutting down");
+    if (this.managing.has(seed.id)) throw new Error("Conversation is busy compacting");
     let cached: Run | undefined;
     try { cached = await this.read(seed.id); }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
@@ -192,16 +208,17 @@ export class Runtime {
     }
     // Recheck after the read: another invocation may have entered or shutdown begun.
     if (this.closing) throw new Error("Runtime is shutting down");
+    if (this.managing.has(seed.id)) throw new Error("Conversation is busy compacting");
     if (this.active.has(seed.id)) throw new Error("This run is already executing");
-    if ([...this.active.values()].filter(run => run.sessionId === seed.sessionId).length >= this.maxActive) throw new Error(`Active Sub-agent capacity ${this.maxActive}: busy; no work queued`);
+    if ([...this.active.values(), ...this.managing.values()].filter(run => run.sessionId === seed.sessionId).length >= this.maxActive) throw new Error(`Active Sub-agent capacity ${this.maxActive}: busy; no work queued`);
     // Conservative v1: one delegation per cwd, even read-only agents may have bash. A nested run is
     // already inside an admitted tree, so it is exempt.
-    if (!options.nested && [...this.active.values()].some((run) => run.cwd === seed.cwd)) throw new Error("Another delegation is using this working directory; wait for it to finish");
+    if (!options.nested && this.ownsWorkspace(seed.cwd)) throw new Error("Another delegation is using this working directory; wait for it to finish");
     const controller = new AbortController();
     const done = this.perform(seed, options, controller);
     this.active.set(seed.id, { stop: (reason = "shutdown") => controller.abort(reason), done, cwd: seed.cwd, sessionId: seed.sessionId });
     try { return await done; }
-    finally { this.active.delete(seed.id); this.live.delete(seed.id); }
+    finally { this.active.delete(seed.id); this.live.delete(seed.id); this.contextReaders.delete(seed.id); }
   }
   private async perform(seed: Run, options: ExecuteOptions, controller: AbortController): Promise<Run> {
     const directory = this.path(seed.id);
@@ -292,7 +309,7 @@ export class Runtime {
       harness = await Harness.open(await openNodeSqliteStorage(join(directory, "agent.sqlite")), { models: options.models, registry,
         // Only the durable SDK owns transient retries. Provider-internal retries are disabled.
         // Settings are resolved afresh by the installed SDK for every failed generation.
-        settings: { toolExecution: "sequential", stream: { maxRetries: 0 }, get retry() {
+        settings: { compaction: { enabled: false }, toolExecution: "sequential", stream: { maxRetries: 0 }, get retry() {
           return { maxRetries: preparingHandoff ? run.handoffRetryPolicy === "unlimited" ? Infinity : Math.max(0, 3 - priorHandoffRetries) : 2 };
         } } }, context);
       const instructions = subagentInstructions(run.agent, run.cwd, options.tools.map((tool) => tool.name), run.unavailable);
@@ -301,6 +318,7 @@ export class Runtime {
         tools: workTools, cwd: run.cwd,
         instructions,
       } });
+      this.contextReaders.set(run.id, () => inspectContext(root, options.models.getModel(run.model.provider, run.model.modelId)?.contextWindow));
       // Aborting a submission wait alone does not stop SDK-owned retry work.
       stopConversation = () => {
         // Ordinary work shutdown is suspended by harness.close for explicit recovery.
@@ -328,7 +346,7 @@ export class Runtime {
         const calls = live?.tools;
         if (preparingHandoff && live?.generation?.retry) run.handoffRetries = priorHandoffRetries + live.generation.attempt;
         const ledger = view.value.docs["pi.usage"] as Partial<UsageState> | undefined;
-        if (ledger?.models) run.usage = modelUsage(ledger.models);
+        if (ledger?.models) run.usage = executionUsage(ledger.models, run);
         const argsById = collectToolArguments(view.value.entries.slice(-120));
         for (const call of calls ?? []) {
           const log = run.activityLog ??= [];
@@ -508,7 +526,7 @@ export class Runtime {
         if (harness) {
           try {
             const ledger = await harness.usage(context);
-            run.usage = modelUsage(ledger.models);
+            run.usage = executionUsage(ledger.models, run);
           } finally { await harness.close(context); }
         }
         if (identityValid && persist) {
@@ -527,10 +545,84 @@ export class Runtime {
         if (!persist) { try { await rmdir(directory); } catch { /* directory is not empty or already gone */ } }
       }
     }
+    this.contextReaders.delete(run.id);
     options.onUpdate?.({ ...run, ...(run.activityLog ? { activityLog: run.activityLog.map((call) => ({ ...call })) } : {}) });
     return run;
   }
+  /** Read-only projection; opening the SDK does not resume retained tasks. */
+  async inspect(id: string, options: { sessionId: string; models: Models }): Promise<Run> {
+    const run = await this.status(id, options.sessionId);
+    const capacity = options.models.getModel(run.model.provider, run.model.modelId)?.contextWindow;
+    const reader = this.contextReaders.get(id);
+    if (reader) return { ...run, contextHealth: await reader() };
+    if (this.managing.has(id)) return { ...run, contextHealth: { ...await inspectContext(undefined, capacity), compaction: "running" } };
+    const directory = this.path(id);
+    const release = await lockfile.lock(directory, { realpath: false, stale: 10000, retries: 0 });
+    let harness: Harness | undefined;
+    try {
+      harness = await Harness.open(await openNodeSqliteStorage(join(directory, "agent.sqlite")), { models: options.models, registry: createRegistry(), settings: { compaction: { enabled: false } } }, context);
+      return { ...run, contextHealth: await inspectContext(await harness.root(context), capacity) };
+    } finally { try { await harness?.close(context); } finally { await release(); } }
+  }
+  async compact(id: string, options: { sessionId: string; models: Models; instructions?: string; operationId?: string; signal?: AbortSignal }): Promise<Run> {
+    const run = await this.status(id, options.sessionId);
+    if (options.operationId && run.compactions?.some(operation => operation.id === options.operationId)) return this.inspect(id, options);
+    if (this.closing) throw new Error("Runtime is shutting down");
+    if (this.active.has(id) || this.managing.has(id) || !["succeeded", "paused"].includes(run.status)) throw new Error("Compaction requires an eligible idle completed or allowance-paused conversation");
+    if ([...this.active.values(), ...this.managing.values()].filter(item => item.sessionId === options.sessionId).length >= this.maxActive) throw new Error("Execution capacity is busy");
+    const controller = new AbortController();
+    const abort = () => controller.abort(); options.signal?.addEventListener("abort", abort, { once: true });
+    if (options.signal?.aborted) abort();
+    const done = this.compactIdle(run, options, controller.signal);
+    this.managing.set(id, { stop: abort, done, cwd: run.cwd, sessionId: run.sessionId });
+    try { return await done; } finally { this.managing.delete(id); options.signal?.removeEventListener("abort", abort); }
+  }
+  private async compactIdle(run: Run, options: { models: Models; instructions?: string; operationId?: string }, signal: AbortSignal): Promise<Run> {
+    const directory = this.path(run.id);
+    const release = await lockfile.lock(directory, { realpath: false, stale: 10000, update: 2000, retries: 0 });
+    let workspaceRelease: (() => Promise<void>) | undefined; let harness: Harness | undefined;
+    try {
+      const workspace = join(this.directory, ".workspaces", createHash("sha256").update(await realpath(run.cwd)).digest("hex"));
+      await mkdir(workspace, { recursive: true, mode: 0o700 });
+      workspaceRelease = await lockfile.lock(workspace, { realpath: false, stale: 10000, update: 2000, retries: 0 });
+      harness = await Harness.open(await openNodeSqliteStorage(join(directory, "agent.sqlite")), { models: options.models, registry: createRegistry(), settings: { compaction: { enabled: false }, stream: { maxRetries: 0 }, retry: { maxRetries: 0 } } }, context);
+      const root = await harness.root(context);
+      const inspection = await harness.inspect(context);
+      const state = await root.viewState(context);
+      const live = state.value.docs["pi.live"] as LiveState | undefined;
+      const inbox = state.value.docs["pi.inbox"] as { items?: unknown[] } | undefined;
+      if (inspection.tasks.length || inspection.submissions.length || live?.run || live?.compactions?.length || inbox?.items?.length) throw new Error("Retained conversation has unfinished work; compaction refused without resuming it");
+      const before = modelUsage((await harness.usage(context)).models);
+      const operation: NonNullable<Run["compactions"]>[number] = { id: options.operationId ?? randomUUID(), outcome: "noop", usage: before, at: Date.now() };
+      try {
+        if (signal.aborted) throw new Error("Compaction cancelled");
+        const task = await root.compact(options.instructions, context);
+        const cancel = () => { void harness!.abortTask(task, context).catch(() => {}); };
+        signal.addEventListener("abort", cancel, { once: true });
+        if (signal.aborted) cancel();
+        try {
+          const receipt = await harness.waitForTask(task, context);
+          if (receipt.state.outcome.status !== "completed") throw new Error(`Compaction ${receipt.state.outcome.status}`);
+          const result = receipt.state.outcome.result;
+          if (result.submissionId) {
+            const submission = await harness.submission(result.submissionId, context);
+            const placement = await submission?.wait(context);
+            if (placement?.status !== "done" || placement.type !== "write" || !placement.entry) throw new Error("Compaction summary was not applied");
+            operation.outcome = "applied";
+          } else if (result.entryId) operation.outcome = "applied";
+        } finally { signal.removeEventListener("abort", cancel); }
+      } catch (error) { operation.outcome = "failed"; operation.error = (error as Error).message; }
+      const after = modelUsage((await harness.usage(context)).models);
+      operation.usage = { input: after.input-before.input, output: after.output-before.output, cacheRead: after.cacheRead-before.cacheRead, cacheWrite: after.cacheWrite-before.cacheWrite, totalTokens: after.totalTokens-before.totalTokens,
+        cost: { input: after.cost.input-before.cost.input, output: after.cost.output-before.cost.output, cacheRead: after.cost.cacheRead-before.cost.cacheRead, cacheWrite: after.cost.cacheWrite-before.cost.cacheWrite, total: after.cost.total-before.cost.total } };
+      const updated = { ...run, compactions: [...(run.compactions ?? []), operation], contextHealth: await inspectContext(root, options.models.getModel(run.model.provider, run.model.modelId)?.contextWindow) };
+      await save(join(directory, "run.json"), updated);
+      return updated;
+    } finally { try { await harness?.close(context); } finally { try { await workspaceRelease?.(); } finally { await release(); } } }
+  }
   async cancel(id: string): Promise<void> {
+    const managing = this.managing.get(id);
+    if (managing) { managing.stop(); await managing.done; return; }
     const active = this.active.get(id);
     if (active) { active.stop("cancelled"); await active.done; return; }
     const directory = this.path(id);
@@ -539,7 +631,7 @@ export class Runtime {
     try {
       const run = await this.read(id);
       if (terminal(run)) return;
-      harness = await Harness.open(await openNodeSqliteStorage(join(directory, "agent.sqlite")), { models: createModels(), registry: createRegistry() }, context);
+      harness = await Harness.open(await openNodeSqliteStorage(join(directory, "agent.sqlite")), { models: createModels(), registry: createRegistry(), settings: { compaction: { enabled: false } } }, context);
       const root = await harness.root(context);
       await root.abort(context);
       await save(join(directory, "run.json"), { ...run, status: "aborted", activity: "Cancelled", updatedAt: Date.now() });
@@ -552,6 +644,7 @@ export class Runtime {
     this.closing = true;
     const active = [...this.active.values()];
     active.forEach((run) => run.stop());
-    await Promise.allSettled(active.map((run) => run.done));
+    const managing = [...this.managing.values()]; managing.forEach(run => run.stop());
+    await Promise.allSettled([...active, ...managing].map((run) => run.done));
   }
 }

@@ -1,3 +1,4 @@
+import { formatContextHealth } from "./context-health.ts";
 import { join, resolve } from "node:path";
 import { Type, type Usage } from "@earendil-works/pi-ai";
 import { getAgentDir, type ExtensionAPI, type ExtensionContext, type ExtensionToolContext } from "@earendil-works/pi-coding-agent";
@@ -454,9 +455,25 @@ export default async function durableSubagent(pi: ExtensionAPI) {
       const id = String(args.run); const sessionId = ctx.sessionManager.getSessionId();
       await runtime.status(id, sessionId);
       if (operation === "cancel") await runtime.cancel(id);
-      const run = operation === "wait" ? await runtime.wait(id, { sessionId, timeoutSeconds: typeof args.waitSeconds === "number" ? args.waitSeconds : undefined, signal }) : await runtime.status(id, sessionId);
+      const run = operation === "wait" ? await runtime.wait(id, { sessionId, timeoutSeconds: typeof args.waitSeconds === "number" ? args.waitSeconds : undefined, signal }) : await runtime.inspect(id, { sessionId, models: bridgeModels(ctx.modelRegistry, id) });
       observeRun(run, ctx);
-      return { content: [{ type: "text", text: `Run ${run.id} · ${run.status} · ${run.activity}\n${run.steering ? `Guidance: accepted ${run.steering.accepted}, consumed ${run.steering.consumed}, pending ${run.steering.pending}, discarded ${run.steering.discarded} (boundary insertion does not prove obedience).\n` : ""}${run.status === "paused" ? run.handoff ?? run.handoffLimitation ?? "" : run.output ?? run.error ?? ""}` }], details: run, isError: run.status === "failed", usage: usageToReport(run, ctx.sessionManager.getBranch()) };
+      return { content: [{ type: "text", text: `Run ${run.id} · ${run.status} · ${run.activity}\n${run.steering ? `Guidance: accepted ${run.steering.accepted}, consumed ${run.steering.consumed}, pending ${run.steering.pending}, discarded ${run.steering.discarded} (boundary insertion does not prove obedience).\n` : ""}${run.status === "paused" ? run.handoff ?? run.handoffLimitation ?? "" : run.output ?? run.error ?? ""}${run.contextHealth ? `\n${formatContextHealth(run.contextHealth)}` : ""}` }], details: run, isError: run.status === "failed", usage: usageToReport(run, ctx.sessionManager.getBranch()) };
+    },
+  });
+  pi.registerTool({
+    name: "subagent_compact", label: "Compact retained subagent", exposure: "model-only",
+    description: "Explicitly compact an idle completed or allowance-paused retained conversation. Reports applied, no-op, or failed; preserves historical answers and fixed authority. Does not guarantee reasoning quality.",
+    parameters: Type.Object({ ...handleParameters, instructions: Type.Optional(Type.String()) }),
+    async execute(toolCallId, args, signal, _update, ctx) {
+      const operationId = runId(ctx.sessionManager.getSessionId(), `compact:${toolCallId}`);
+      const run = await runtime.compact(String(args.run), { sessionId: ctx.sessionManager.getSessionId(), models: bridgeModels(ctx.modelRegistry, String(args.run)), instructions: args.instructions, operationId, signal });
+      const operation = run.compactions!.find(operation => operation.id === operationId)!;
+      const delivered = ctx.sessionManager.getBranch().some(entry => {
+        if (entry.type !== "message" || entry.message.role !== "toolResult" || entry.message.toolName !== "subagent_compact") return false;
+        const details = entry.message.details as unknown as { compactionOperationId?: string } | undefined;
+        return details?.compactionOperationId === operationId;
+      });
+      return { content: [{ type: "text", text: `Compaction ${operation.outcome}${operation.error ? `: ${operation.error}` : ""}\n${formatContextHealth(run.contextHealth!)}` }], details: { ...run, compactionOperationId: operationId }, isError: operation.outcome === "failed", usage: delivered ? undefined : operation.usage };
     },
   });
   pi.registerTool({
@@ -492,7 +509,7 @@ export default async function durableSubagent(pi: ExtensionAPI) {
   // an execution that owns its workspace; unknown extension tools are conservatively effectful.
   pi.on("tool_call", (event, ctx) => {
     if (event.parentToolCallId || !runtime.ownsWorkspace(ctx.cwd)) return;
-    const safe = new Set(["read", "grep", "find", "ls", "subagent", "subagents_list", "subagent_status", "subagent_wait", "subagent_cancel", "subagent_steer", "worktree_list"]);
+    const safe = new Set(["read", "grep", "find", "ls", "subagent", "subagents_list", "subagent_status", "subagent_wait", "subagent_cancel", "subagent_compact", "subagent_steer", "worktree_list"]);
     if (!safe.has(event.toolName)) return { block: true, reason: "Active Sub-agent owns this workspace; wait or cancel before parent writes. Use isolated worktrees for concurrent writers." };
   });
 
