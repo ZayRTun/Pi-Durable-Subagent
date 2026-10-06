@@ -456,7 +456,17 @@ export default async function durableSubagent(pi: ExtensionAPI) {
       if (operation === "cancel") await runtime.cancel(id);
       const run = operation === "wait" ? await runtime.wait(id, { sessionId, timeoutSeconds: typeof args.waitSeconds === "number" ? args.waitSeconds : undefined, signal }) : await runtime.status(id, sessionId);
       observeRun(run, ctx);
-      return { content: [{ type: "text", text: `Run ${run.id} · ${run.status} · ${run.activity}\n${run.status === "paused" ? run.handoff ?? run.handoffLimitation ?? "" : run.output ?? run.error ?? ""}` }], details: run, isError: run.status === "failed", usage: usageToReport(run, ctx.sessionManager.getBranch()) };
+      return { content: [{ type: "text", text: `Run ${run.id} · ${run.status} · ${run.activity}\n${run.steering ? `Guidance: accepted ${run.steering.accepted}, consumed ${run.steering.consumed}, pending ${run.steering.pending}, discarded ${run.steering.discarded} (boundary insertion does not prove obedience).\n` : ""}${run.status === "paused" ? run.handoff ?? run.handoffLimitation ?? "" : run.output ?? run.error ?? ""}` }], details: run, isError: run.status === "failed", usage: usageToReport(run, ctx.sessionManager.getBranch()) };
+    },
+  });
+  pi.registerTool({
+    name: "subagent_steer", label: "Subagent steer", exposure: "model-only",
+    description: "Queue guidance for active work by execution handle. Preserves original scope and authority; accepted and consumed at a safe boundary are distinct from obedience. Does not interrupt running tools. Completed-child tasks require follow-up.",
+    parameters: Type.Object({ ...handleParameters, guidance: Type.String({ minLength: 1, maxLength: 8000 }) }),
+    async execute(_id, args, _signal, _update, ctx) {
+      const run = await runtime.steer(args.run, ctx.sessionManager.getSessionId(), args.guidance);
+      observeRun(run, ctx);
+      return { content: [{ type: "text", text: `Run ${run.id} · guidance ${run.steering?.latest?.state} · accepted ${run.steering?.accepted} · consumed ${run.steering?.consumed} · pending ${run.steering?.pending}. Consumption is boundary insertion, not proof of obedience.` }], details: run, usage: usageToReport(run, ctx.sessionManager.getBranch()) };
     },
   });
   pi.on("agent_settled", async (_event, ctx) => {
@@ -482,7 +492,7 @@ export default async function durableSubagent(pi: ExtensionAPI) {
   // an execution that owns its workspace; unknown extension tools are conservatively effectful.
   pi.on("tool_call", (event, ctx) => {
     if (event.parentToolCallId || !runtime.ownsWorkspace(ctx.cwd)) return;
-    const safe = new Set(["read", "grep", "find", "ls", "subagent", "subagents_list", "subagent_status", "subagent_wait", "subagent_cancel", "worktree_list"]);
+    const safe = new Set(["read", "grep", "find", "ls", "subagent", "subagents_list", "subagent_status", "subagent_wait", "subagent_cancel", "subagent_steer", "worktree_list"]);
     if (!safe.has(event.toolName)) return { block: true, reason: "Active Sub-agent owns this workspace; wait or cancel before parent writes. Use isolated worktrees for concurrent writers." };
   });
 

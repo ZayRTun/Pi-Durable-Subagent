@@ -35,7 +35,7 @@ export function usageToReport(run: Run, entries: readonly { type: string; messag
   for (const entry of entries) {
     if (entry.type !== "message") continue;
     const message = entry.message as { role?: string; toolName?: string; details?: { id?: string; usage?: Usage; steps?: { id?: string; usage?: Usage }[] } } | undefined;
-    if (message?.role === "toolResult" && ["subagent", "subagent_status", "subagent_wait", "subagent_cancel"].includes(message.toolName ?? "")) {
+    if (message?.role === "toolResult" && ["subagent", "subagent_status", "subagent_wait", "subagent_cancel", "subagent_steer"].includes(message.toolName ?? "")) {
       const delivered = message.details?.id === run.id ? message.details : message.details?.steps?.find((step) => step.id === run.id);
       account(delivered?.usage);
     }
