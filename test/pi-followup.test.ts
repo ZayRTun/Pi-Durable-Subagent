@@ -90,3 +90,13 @@ test('host follow-up excludes earlier separately billed compaction and later exe
   const replay=await call('subagent_status',{run:first.details.id});assert.equal(replay.usage,undefined);assert.deepEqual(replay.details.usage,childUsage[2]);
  });
 });
+
+test('completed group child follow-up leaves historical group membership and answers unchanged',async()=>{
+ await host(async call=>{
+  const started=await call('subagent',{agent:'worker',tasks:[{task:'The secret is orchid.'},{task:'Independent task.'}]});assert.equal(started.isError,false);const group=started.details;assert.match(group.id,/^[a-f0-9]{32}$/);assert.equal(group.steps.length,2);
+  const original=group.steps[0] as Run & {groupId:string};assert.equal(original.groupId,group.id);
+  const next=await call('subagent_followup',{run:original.id,task:'What is the secret?'});assert.equal(next.isError,false);assert.equal(next.details.groupId,undefined);assert.equal(next.details.conversationId,original.id);assert.equal(next.details.output,'The secret is orchid.');
+  const retained=await call('subagent_status',{run:group.id});assert.equal(retained.isError,false);assert.deepEqual(retained.details.steps.map((step:Run)=>({id:step.id,task:step.task,output:step.output})),group.steps.map((step:Run)=>({id:step.id,task:step.task,output:step.output})));
+  const retrieved=await call('subagent',{resume:next.details.id});assert.equal(retrieved.isError,false);assert.equal(retrieved.details.id,next.details.id);assert.equal(retrieved.details.steps,undefined);assert.equal(retrieved.usage,undefined);
+ });
+});

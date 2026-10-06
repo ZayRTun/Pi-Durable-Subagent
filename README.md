@@ -153,6 +153,12 @@ A call takes `task` for one step, or `tasks` for up to eight. Call-level `agent`
 
 `chain` takes the same step list but hands each step the previous step's answer, appended to its task. It runs in the caller's directory and refuses `worktree`, since isolation would hide one step's changes from the next.
 
+For supervised groups, add `nonblocking: true` to `tasks` or `chain`. The start result returns a distinct group `id`, a child handle for every requested entry, and the requested-order presentation. `subagent_status`, `subagent_wait`, and `subagent_cancel` accept the group handle; a child handle targets that child. Unstarted dependencies can be inspected and cancelled without creating a Run: cancelled entries remain **Not run**.
+
+An allowance pause holds later Ordered and Chain entries **Pending**. Reopening or inspecting the group does not start them. Continue the held child with `subagent({ resume: childId, reassessment: "<remaining-work assessment>", timeoutMinutes: null })` (or a fresh numeric allowance). Only its successful final answer advances dependents; its handoff never becomes a Chain answer. A failed or cancelled dependency leaves later entries Not run. Parallel siblings use separate checkouts and continue independently. Active capacity and workspace admission apply to each actual child; a capacity rejection is recorded and never retried through a hidden queue.
+
+Only nonblocking groups appear above the editor, using the same one-space group inset, tree, metrics, Markdown, Ctrl+O, and per-child mouse expansion as transcript groups. Paused groups stay visible. Finished groups leave the sticky area after each child's completion notification is retained by the host. Blocking groups remain transcript-only. Group costs sum recorded child costs; management retrieval reports only newly accrued child usage.
+
 ## Nesting
 
 A definition opts in by declaring `subagent` among its tools, or by the packaged `allowSubagents: true` spelling. Only then does a Sub-agent receive a delegation tool, and only while depth remains.

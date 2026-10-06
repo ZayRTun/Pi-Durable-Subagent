@@ -20,7 +20,7 @@ parser.add_argument('extension', type=Path)
 parser.add_argument('--width', type=int, default=80)
 parser.add_argument('--theme', choices=['dark', 'light'], default='dark')
 parser.add_argument('--mode', choices=['regular', 'fullscreen'], default='fullscreen')
-parser.add_argument('--scenario', choices=['single', 'ordered', 'chain', 'parallel', 'failure', 'cancel', 'cancel-chain', 'pause', 'baseline', 'supervised', 'supervised-pause', 'supervised-completion'], default='chain')
+parser.add_argument('--scenario', choices=['single', 'ordered', 'chain', 'parallel', 'failure', 'cancel', 'cancel-chain', 'pause', 'baseline', 'supervised', 'supervised-pause', 'supervised-completion', 'supervised-group-ordered-pause', 'supervised-group-chain-pause', 'supervised-group-parallel-pause'], default='chain')
 a = parser.parse_args()
 root, extension = a.root.resolve(), a.extension.resolve()
 assert root.name.startswith('durable-tui-'), 'Disposable durable-tui-* directory required'
@@ -32,7 +32,7 @@ for name, color in [('scout', 'cyan'), ('worker', 'orange'), ('reviewer', 'purpl
 for i in range(3):
     (root / f'sample-{i}.txt').write_text('Disposable retry policy fixture. No customer data.\n')
 (root / 'config/settings.json').write_text(json.dumps({'theme': a.theme, 'packages': []}))
-if a.scenario == 'parallel':
+if 'parallel' in a.scenario:
     subprocess.run(['git', 'init', '-q', str(root)], check=True)
     subprocess.run(['git', '-C', str(root), 'add', 'sample-0.txt', 'sample-1.txt', 'sample-2.txt'], check=True)
     subprocess.run(['git', '-C', str(root), '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'Disposable fixture baseline'], check=True)
@@ -162,7 +162,55 @@ try:
     os.write(master,(a.scenario+'\r').encode())
     drain(1.3)
     initial,checks=capture('running-collapsed')
-    if a.scenario.startswith('supervised'):
+    if a.scenario.startswith('supervised-group'):
+        label='Parallel' if 'parallel' in a.scenario else 'Chain' if 'chain' in a.scenario else 'Ordered'
+        assert 'Offline fixture complete.' in initial,'Parent remains free while group runs'
+        assert initial.count('Delegation · '+label)>=2,'Group renders in transcript and sticky area'
+        headers=[y for y,line in enumerate(screen) if 'Delegation · '+label in ''.join(line)]
+        sticky_y=headers[-1]
+        assert ''.join(screen[sticky_y]).startswith(' '),'Complete group has one-space outer inset'
+        if label!='Parallel': assert initial.count('Pending')>=4,'Both dependent rows remain pending'
+        frames=[]
+        for _ in range(3): drain(.13);frames.append(''.join(screen[sticky_y+1]))
+        assert len(set(frames))>1,'Native group spinner advances'
+        os.write(master,b'\x0f');drain(.15)
+        expanded,_=capture('group-expanded')
+        assert 'Current tool' in expanded and 'npm test -- retry-policy' in expanded
+        os.write(master,b'\x0f');drain(.15)
+        if a.mode=='fullscreen':
+            y=next(y for y in range(sticky_y+1,rows) if 'scout (' in ''.join(screen[y]));x=''.join(screen[y]).index('scout')+1
+            os.write(master,f'\x1b[<0;{x};{y+1}M\x1b[<0;{x};{y+1}m'.encode());drain(.15)
+            clicked,_=capture('group-child-expanded')
+            assert clicked.count('Current tool')==1,'Sticky header click expands only selected child'
+        for newwidth in (120,80,a.width):
+            if newwidth!=cols:
+                cols=newwidth;screen=[[' ']*cols for _ in range(rows)];backgrounds=[[None]*cols for _ in range(rows)];r=c=0
+                fcntl.ioctl(master,termios.TIOCSWINSZ,struct.pack('HHHH',rows,cols,0,0));os.kill(process.pid,signal.SIGWINCH)
+            drain(.15);resized,checks=capture(f'group-resize-{newwidth}')
+            assert 'Delegation · '+label in resized
+            assert checks and all(item['background'] is None and item['leftBackground'] is None for item in checks)
+        drain(9)
+        paused,_=capture('group-paused')
+        assert 'Paused' in paused,'Paused nonblocking group stays visible'
+        if label=='Parallel': assert 'Done' in paused and 'Failed' in paused and '2/3 done' in paused,'Independent sibling completion and failure remain truthful'
+        else: assert '0/3 done' in paused and 'Pending' in paused,'Paused work does not advance or count as done'
+        if label=='Chain':
+            os.write(master,b'continue group\r');drain(7)
+            os.write(master,b'inspect group\r');drain(.5)
+            continued,_=capture('group-continued')
+            assert '3/3 done' in continued,'Final continuation advances held dependencies'
+            assert continued.split(' inspect group')[-1].count('Delegation · '+label)==1,'Completion receipts remove sticky group after retained inspection'
+            os.write(master,b'\x0f');drain(.2)
+            final_expanded,_=capture('group-completed-markdown')
+            assert 'Changes' in final_expanded,'Native group expansion renders completed Markdown'
+        else:
+            os.write(master,b'cancel supervised\r');drain(1)
+            cancelled,_=capture('group-cancelled')
+            assert cancelled.count('Delegation · '+label)==2,'Cancelled group leaves transcript start and management result only'
+            if label=='Ordered': assert cancelled.count('Not run')==2,'Cancelled dependencies remain Not run'
+        (root/'acceptance.json').write_text(json.dumps({'scenario':a.scenario,'width':a.width,'theme':a.theme,'mode':a.mode,'groupInset':True,'spinnerAdvanced':True,'stickyNativeGeometry':True,'pause':True,'continuation':label=='Chain','independentSiblings':label=='Parallel','paidProviderCalls':0},indent=2))
+        print(f'PASS: native group {label} {a.width} {a.theme} {a.mode}')
+    elif a.scenario.startswith('supervised'):
         assert 'Offline fixture complete.' in initial, 'Parent must finish while child tool waits'
         workerrows=[y for y,line in enumerate(screen) if 'worker (' in ''.join(line)]
         assert len(workerrows)>=2, 'Transcript and sticky execution should both appear'
