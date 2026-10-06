@@ -7,7 +7,7 @@ import { AssistantEntry, UserEntry, createRegistry, defineExtension, Harness, ty
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import lockfile from "proper-lockfile";
 import type { DelegationPresentation } from "./presentation.ts";
-import { inspectContext, type ContextHealth } from "./context-health.ts";
+import { inspectContext, validateReuseDecision, formatContextHealth, type ContextHealth } from "./context-health.ts";
 import type { AgentDefinition } from "./agents.ts";
 import { subagentInstructions } from "./prompt.ts";
 import { collectToolArguments, describeActivity, reconcileToolDiagnostics, toolActivity } from "./activity.ts";
@@ -20,6 +20,12 @@ export interface Run {
   version: 1;
   id: string;
   sessionId: string;
+  /** Stable retained SDK conversation identity; historical records use id. */
+  conversationId?: string;
+  delegationDepth?: number;
+  previousExecutionId?: string;
+  /** Cumulative conversation spend before this execution, including earlier compaction. */
+  usageBaseline?: Usage;
   agent: AgentDefinition;
   task: string;
   /** Explicitly detached from the starting parent tool call. */
@@ -129,14 +135,14 @@ function modelUsage(models: Record<string, Usage>): Usage {
 /** Compaction has its own accounting identity, separate from ordinary execution spend. */
 function executionUsage(models: Record<string, Usage>, run: Run): Usage {
   const total = modelUsage(models);
-  for (const operation of run.compactions ?? []) {
+  for (const operation of [...(run.usageBaseline ? [{ usage: run.usageBaseline }] : []), ...(run.compactions ?? [])]) {
     for (const key of ["input", "output", "cacheRead", "cacheWrite", "totalTokens"] as const) total[key] = Math.max(0, total[key] - operation.usage[key]);
     for (const key of ["input", "output", "cacheRead", "cacheWrite", "total"] as const) total.cost[key] = Math.max(0, total.cost[key] - operation.usage.cost[key]);
   }
   return total;
 }
 
-/** One SQLite harness per execution with awaited owner shutdown and no idle scheduler. */
+/** One retained SQLite conversation shared by distinct executions, with awaited owner shutdown. */
 export class Runtime {
   readonly directory: string;
   private active = new Map<string, { stop: (reason?: string) => void; done: Promise<Run>; cwd: string; sessionId: string }>();
@@ -166,6 +172,44 @@ export class Runtime {
     const send = this.steering.get(id);
     if (this.closing || run.status !== "running" || !send) throw new Error("Steering requires active work; use follow-up for a completed child, or explicit continuation/recovery for stopped work");
     return send(guidance);
+  }
+  private conversation(run: Run): string { return run.conversationId ?? run.id; }
+  private async requireIdleConversation(run: Run): Promise<void> {
+    const id = this.conversation(run);
+    if ([...this.live.values()].some(item => this.conversation(item) === id) || [...this.managing.keys()].some(key => key === id || key === run.id)) throw new Error("Conversation is busy; use steering for active work");
+    const history = (await this.list(run.sessionId)).filter(item => this.conversation(item) === id);
+    if (history.some(item => item.status !== "succeeded")) throw new Error("Conversation has unfinished work; explicit continuation/recovery is required");
+  }
+  /** New task, same frozen authority and retained conversation; never continuation or steering. */
+  async followUp(id: string, request: { executionId: string; sessionId: string; task: string; reuse?: boolean; fresh?: boolean; nonblocking?: boolean }, options: ExecuteOptions): Promise<Run> {
+    for (const key of Object.keys(request)) if (!["executionId", "sessionId", "task", "reuse", "fresh", "nonblocking"].includes(key)) throw new Error(`Follow-up cannot replace authority: ${key}`);
+    if (!request.task?.trim()) throw new Error("Follow-up requires a nonempty new task");
+    validateId(request.executionId);
+    if (request.executionId === id) throw new Error("Follow-up requires a distinct execution identity");
+    const previous = await this.status(id, request.sessionId);
+    if (previous.status !== "succeeded") throw new Error("Follow-up requires a completed child; use steering for active work or explicit continuation/recovery for stopped work");
+    let existing: Run | undefined;
+    try { existing = await this.read(request.executionId); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+    if (existing) {
+      if (existing.sessionId !== request.sessionId || existing.previousExecutionId !== id || existing.task !== request.task) throw new Error("Run identity does not match this follow-up");
+      return this.status(existing.id, request.sessionId);
+    }
+    await this.requireIdleConversation(previous);
+    const inspected = await this.inspect(id, { sessionId: request.sessionId, models: options.models });
+    if (!request.fresh) {
+      try { validateReuseDecision(inspected.contextHealth!, request.reuse); }
+      catch (error) { throw new Error(`${(error as Error).message}\n${formatContextHealth(inspected.contextHealth!)}`); }
+    }
+    const now = Date.now();
+    const seed: Run = { version: 1, id: request.executionId, sessionId: previous.sessionId,
+      conversationId: request.fresh ? request.executionId : this.conversation(previous), previousExecutionId: id,
+      delegationDepth: previous.delegationDepth,
+      agent: previous.agent, model: previous.model, cwd: previous.cwd, thinking: previous.thinking,
+      role: previous.role, worktree: previous.worktree, timeoutMinutes: previous.timeoutMinutes, handoffRetryPolicy: previous.handoffRetryPolicy,
+      task: request.task, nonblocking: request.nonblocking, contextHealth: inspected.contextHealth,
+      createdAt: now, updatedAt: now, status: "running", activity: "Starting follow-up", unavailable: [] };
+    const fixedOptions = { ...options, tools: options.tools.filter(tool => previous.agent.tools.includes(tool.name) && !previous.unavailable.includes(tool.name)) };
+    return request.nonblocking ? this.start(seed, fixedOptions) : this.execute(seed, fixedOptions);
   }
   /** Returns only after admission/persistence; retains an independent controller until completion. */
   async start(seed: Run, options: ExecuteOptions): Promise<Run> {
@@ -391,8 +435,9 @@ export class Runtime {
   }
   private async perform(seed: Run, options: ExecuteOptions, controller: AbortController): Promise<Run> {
     const directory = this.path(seed.id);
+    const conversationDirectory = this.path(this.conversation(seed));
     await mkdir(directory, { recursive: true, mode: 0o700 });
-    const release = await lockfile.lock(directory, { realpath: false, stale: 10000, update: 2000, retries: 0,
+    const release = await lockfile.lock(conversationDirectory, { realpath: false, stale: 10000, update: 2000, retries: 0,
       onCompromised: () => controller.abort("lock lost") });
     let workspaceRelease: (() => Promise<void>) | undefined;
     let identityValid = false;
@@ -443,6 +488,9 @@ export class Runtime {
         workspaceRelease = await lockfile.lock(workspace, { realpath: false, stale: 10000, update: 2000, retries: 0,
           onCompromised: () => controller.abort("lock lost") });
       }
+      if (run.previousExecutionId && !run.usageBaseline && this.conversation(run) !== run.id) {
+        await this.requireIdleConversation(await this.read(run.previousExecutionId));
+      }
       persist = true;
       const continuing = run.status === "paused" && options.continuation;
       const failedRecovery = run.status === "failed";
@@ -475,7 +523,7 @@ export class Runtime {
         }
       } }));
       registry.install(defineExtension({ name: "pi-tools", tools: workTools }));
-      harness = await Harness.open(await openNodeSqliteStorage(join(directory, "agent.sqlite")), { models: options.models, registry,
+      harness = await Harness.open(await openNodeSqliteStorage(join(conversationDirectory, "agent.sqlite")), { models: options.models, registry,
         // Only the durable SDK owns transient retries. Provider-internal retries are disabled.
         // Settings are resolved afresh by the installed SDK for every failed generation.
         settings: { compaction: { enabled: false }, toolExecution: "sequential", stream: { maxRetries: 0 }, get retry() {
@@ -487,6 +535,7 @@ export class Runtime {
         tools: workTools, cwd: run.cwd,
         instructions,
       } });
+      if (run.previousExecutionId && !run.usageBaseline) run.usageBaseline = modelUsage((await harness.usage(context)).models);
       this.contextReaders.set(run.id, () => inspectContext(root, options.models.getModel(run.model.provider, run.model.modelId)?.contextWindow));
       // Aborting a submission wait alone does not stop SDK-owned retry work.
       stopConversation = () => {
@@ -506,7 +555,7 @@ export class Runtime {
         for (const id of collectToolArguments(page.items).keys()) historicalCalls.add(id);
         cursor = page.next;
       } while (cursor);
-      priorToolCount = Math.max(priorToolCount, historicalCalls.size);
+      if (!run.previousExecutionId) priorToolCount = Math.max(priorToolCount, historicalCalls.size);
       const view = await root.viewState(context);
       let last = 0;
       const publish = () => {
@@ -722,10 +771,11 @@ export class Runtime {
   async inspect(id: string, options: { sessionId: string; models: Models }): Promise<Run> {
     const run = await this.status(id, options.sessionId);
     const capacity = options.models.getModel(run.model.provider, run.model.modelId)?.contextWindow;
-    const reader = this.contextReaders.get(id);
+    const sibling = [...this.live.values()].find(item => this.conversation(item) === this.conversation(run));
+    const reader = this.contextReaders.get(sibling?.id ?? id);
     if (reader) return { ...run, contextHealth: await reader() };
     if (this.managing.has(id)) return { ...run, contextHealth: { ...await inspectContext(undefined, capacity), compaction: "running" } };
-    const directory = this.path(id);
+    const directory = this.path(this.conversation(run));
     const release = await lockfile.lock(directory, { realpath: false, stale: 10000, retries: 0 });
     let harness: Harness | undefined;
     try {
@@ -738,6 +788,8 @@ export class Runtime {
     if (options.operationId && run.compactions?.some(operation => operation.id === options.operationId)) return this.inspect(id, options);
     if (this.closing) throw new Error("Runtime is shutting down");
     if (this.active.has(id) || this.managing.has(id) || !["succeeded", "paused"].includes(run.status)) throw new Error("Compaction requires an eligible idle completed or allowance-paused conversation");
+    if ([...this.live.values()].some(item => this.conversation(item) === this.conversation(run))) throw new Error("Conversation is busy");
+    if ((await this.list(run.sessionId)).some(item => this.conversation(item) === this.conversation(run) && item.id !== run.id && item.status !== "succeeded")) throw new Error("Conversation has unfinished work");
     if ([...this.active.values(), ...this.managing.values()].filter(item => item.sessionId === options.sessionId).length >= this.maxActive) throw new Error("Execution capacity is busy");
     const controller = new AbortController();
     const abort = () => controller.abort(); options.signal?.addEventListener("abort", abort, { once: true });
@@ -747,7 +799,7 @@ export class Runtime {
     try { return await done; } finally { this.managing.delete(id); options.signal?.removeEventListener("abort", abort); }
   }
   private async compactIdle(run: Run, options: { models: Models; instructions?: string; operationId?: string }, signal: AbortSignal): Promise<Run> {
-    const directory = this.path(run.id);
+    const directory = this.path(this.conversation(run));
     const release = await lockfile.lock(directory, { realpath: false, stale: 10000, update: 2000, retries: 0 });
     let workspaceRelease: (() => Promise<void>) | undefined; let harness: Harness | undefined;
     try {
@@ -785,7 +837,7 @@ export class Runtime {
       operation.usage = { input: after.input-before.input, output: after.output-before.output, cacheRead: after.cacheRead-before.cacheRead, cacheWrite: after.cacheWrite-before.cacheWrite, totalTokens: after.totalTokens-before.totalTokens,
         cost: { input: after.cost.input-before.cost.input, output: after.cost.output-before.cost.output, cacheRead: after.cost.cacheRead-before.cost.cacheRead, cacheWrite: after.cost.cacheWrite-before.cost.cacheWrite, total: after.cost.total-before.cost.total } };
       const updated = { ...run, compactions: [...(run.compactions ?? []), operation], contextHealth: await inspectContext(root, options.models.getModel(run.model.provider, run.model.modelId)?.contextWindow) };
-      await save(join(directory, "run.json"), updated);
+      await save(join(this.path(run.id), "run.json"), updated);
       return updated;
     } finally { try { await harness?.close(context); } finally { try { await workspaceRelease?.(); } finally { await release(); } } }
   }
@@ -794,16 +846,17 @@ export class Runtime {
     if (managing) { managing.stop(); await managing.done; return; }
     const active = this.active.get(id);
     if (active) { active.stop("cancelled"); await active.done; return; }
-    const directory = this.path(id);
+    const run = await this.read(id);
+    if (terminal(run)) return;
+    const directory = this.path(this.conversation(run));
     const release = await lockfile.lock(directory, { realpath: false, stale: 10000, retries: 0 });
     let harness: Harness | undefined;
     try {
-      const run = await this.read(id);
       if (terminal(run)) return;
       harness = await Harness.open(await openNodeSqliteStorage(join(directory, "agent.sqlite")), { models: createModels(), registry: createRegistry(), settings: { compaction: { enabled: false } } }, context);
       const root = await harness.root(context);
       await root.abort(context);
-      await save(join(directory, "run.json"), { ...run, status: "aborted", activity: "Cancelled", updatedAt: Date.now() });
+      await save(join(this.path(id), "run.json"), { ...run, status: "aborted", activity: "Cancelled", updatedAt: Date.now() });
     } finally {
       try { if (harness) await harness.close(context); }
       finally { await release(); }
