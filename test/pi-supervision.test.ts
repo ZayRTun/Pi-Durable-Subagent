@@ -79,3 +79,48 @@ test('host capacity refuses busy without queue, blocks parent writes, cancels an
   faux.setResponses([fauxAssistantMessage([fauxToolCall('subagent_status',{run:handles[1]},{id:'inspect'})],{stopReason:'toolUse'}),fauxAssistantMessage('Interrupted execution requires explicit recovery.')]);await session!.prompt('Inspect after reload.');const inspected=session!.messages.findLast(message=>message.role==='toolResult');assert.ok(inspected?.role==='toolResult');assert.equal((inspected.details as {status:string}).status,'interrupted');assert.equal(calls,2);
  }finally{if(session){await session.extensionRunner.emit({type:'session_shutdown',reason:'quit'});session.dispose();}for(const [key,value]of Object.entries({PI_SUBAGENT_STORAGE:old.storage,PI_SUBAGENT_AGENTS:old.agents,PI_SUBAGENT_MAX_ACTIVE:old.capacity})){if(value===undefined)delete process.env[key];else process.env[key]=value;}await rm(directory,{recursive:true,force:true});}
 });
+
+test('active workspace ownership permits declared reads and host session task controls while blocking workspace writes', {timeout:10000}, async () => {
+ const directory=await mkdtemp(join(tmpdir(),'pi-supervision-scoped-tools-'));const old={storage:process.env.PI_SUBAGENT_STORAGE,agents:process.env.PI_SUBAGENT_AGENTS};
+ process.env.PI_SUBAGENT_STORAGE=join(directory,'runs');process.env.PI_SUBAGENT_AGENTS=directory;
+ let session:Awaited<ReturnType<typeof createAgentSession>>['session']|undefined;let release!:()=>void;const gate=new Promise<void>(resolve=>release=resolve);let childStarted!:()=>void;const started=new Promise<void>(resolve=>childStarted=resolve);
+ const effects:string[]=[];let sessionTasks=['original task'];
+ try{
+  await writeFile(join(directory,'worker.md'),'---\nname: worker\ndescription: Controlled worker\ntools: wait_work\n---\nWait for the host checks.');
+  const faux=fauxProvider();faux.setResponses(Array.from({length:80},()=>context=>{
+   const parent=context.messages.some(message=>message.role==='system'&&message.toolsAdded?.some(tool=>tool.name==='subagent'));
+   if(!parent){assert.doesNotMatch(JSON.stringify(context),/get_tasks|set_tasks/,'Session Tasks tools stay outside child authority');return fauxAssistantMessage([fauxToolCall('wait_work',{}, {id:'hold-owned-workspace'})],{stopReason:'toolUse'});}
+   const last=context.messages.at(-1);
+   if(last?.role==='toolResult')return fauxAssistantMessage('Host operation completed.');
+   const user=[...context.messages].reverse().find(message=>message.role==='user');const prompt=JSON.stringify(user?.content??'');
+   if(prompt.includes('Start a child'))return fauxAssistantMessage([fauxToolCall('subagent',{agent:'worker',task:'Hold the owned workspace while the parent performs independent controls.',nonblocking:true},{id:'start-held-child'})],{stopReason:'toolUse'});
+   if(prompt.includes('generic declared read'))return fauxAssistantMessage([fauxToolCall('workspace_catalog',{}, {id:'declared-read'})],{stopReason:'toolUse'});
+   if(prompt.includes('fffind'))return fauxAssistantMessage([fauxToolCall('fffind',{}, {id:'optional-fffind'})],{stopReason:'toolUse'});
+   if(prompt.includes('ffgrep'))return fauxAssistantMessage([fauxToolCall('ffgrep',{}, {id:'optional-ffgrep'})],{stopReason:'toolUse'});
+   if(prompt.includes('read session tasks'))return fauxAssistantMessage([fauxToolCall('get_tasks',{}, {id:'get-tasks-before'})],{stopReason:'toolUse'});
+   if(prompt.includes('update session tasks'))return fauxAssistantMessage([fauxToolCall('set_tasks',{value:'updated session task'},{id:'set-tasks'})],{stopReason:'toolUse'});
+   if(prompt.includes('confirm session tasks'))return fauxAssistantMessage([fauxToolCall('get_tasks',{}, {id:'get-tasks-after'})],{stopReason:'toolUse'});
+   if(prompt.includes('attempt a workspace write'))return fauxAssistantMessage([fauxToolCall('write',{path:'parent-write.txt',content:'must not be written'},{id:'blocked-parent-write'})],{stopReason:'toolUse'});
+   return fauxAssistantMessage('All host controls were exercised.');
+  }));
+  const models=await ModelRuntime.create({authPath:join(directory,'auth.json'),modelsPath:null,modelsStorePath:join(directory,'models.json'),refreshOnCreate:false});models.registerNativeProvider(faux.provider);
+  const settings=SettingsManager.inMemory({defaultTools:['subagent','workspace_catalog','fffind','ffgrep','get_tasks','set_tasks','write']});
+  const loader=new DefaultResourceLoader({cwd:directory,agentDir:directory,settingsManager:settings,noExtensions:true,noSkills:true,noPromptTemplates:true,noThemes:true,extensionFactories:[extension,pi=>{
+   pi.registerTool({name:'wait_work',label:'Wait',exposure:'codemode',description:'Hold workspace ownership',parameters:Type.Object({}),async execute(_id,_args,signal){childStarted();await new Promise<void>((resolve,reject)=>{const stop=()=>{release();resolve();};signal?.addEventListener('abort',stop,{once:true});if(signal?.aborted)stop();void gate.then(resolve);});return {content:[],details:undefined};}});
+   pi.registerTool({name:'workspace_catalog',label:'Workspace catalog',exposure:'codemode',description:'Generic declared read-only host tool',parameters:Type.Object({}),annotations:{readOnlyHint:true},async execute(){effects.push('workspace_catalog');return {content:[{type:'text',text:'catalog'}],details:undefined};}});
+   for(const name of ['fffind','ffgrep'])pi.registerTool({name,label:`Optional ${name}`,exposure:'codemode',description:'Optional declared read-only lookup',parameters:Type.Object({}),annotations:{readOnlyHint:true},async execute(){effects.push(name);return {content:[{type:'text',text:name}],details:undefined};}});
+   // Faithful host-only fixture for an optional session-native Tasks extension.
+   pi.registerTool({name:'get_tasks',label:'Read Tasks',exposure:'codemode',description:'Read host session task state',parameters:Type.Object({}),annotations:{readOnlyHint:true},async execute(){effects.push('get_tasks');return {content:[{type:'text',text:sessionTasks.join(',')}],details:sessionTasks};}});
+   pi.registerTool({name:'set_tasks',label:'Update Tasks',exposure:'codemode',description:'Update host session task state',parameters:Type.Object({value:Type.String()}),annotations:{readOnlyHint:false},async execute(_id,args){sessionTasks=[args.value];effects.push('set_tasks');return {content:[{type:'text',text:'updated'}],details:sessionTasks};}});
+   pi.registerTool({name:'write',label:'Workspace write',exposure:'codemode',description:'Write a parent workspace file',parameters:Type.Object({path:Type.String(),content:Type.String()}),async execute(_id,args){await writeFile(join(directory,args.path),args.content);effects.push('write');return {content:[],details:undefined};}});
+  }]});await loader.reload();assert.deepEqual(loader.getExtensions().errors,[]);
+  ({session}=await createAgentSession({cwd:directory,agentDir:directory,modelRuntime:models,model:faux.getModel(),sessionManager:SessionManager.inMemory(directory),settingsManager:settings,resourceLoader:loader,thinkingLevel:'off'}));
+  await session.prompt('Start a child and keep it active.');await started;
+  for(const prompt of ['Use a generic declared read.','Use fffind.','Use ffgrep.','Please read session tasks.','Please update session tasks.','Please confirm session tasks.','Please attempt a workspace write.'])await session.prompt(prompt);
+  assert.deepEqual(effects,['workspace_catalog','fffind','ffgrep','get_tasks','set_tasks','get_tasks'],`Every allowed read and host session mutation must execute through the registered host tools: ${JSON.stringify(session.messages.filter(message=>message.role==='toolResult').map(message=>({name:message.toolName,error:message.isError,content:message.content})))}`);
+  assert.deepEqual(sessionTasks,['updated session task'],'Parent session Tasks state changes while the child retains only its declared wait tool');
+  const taskReadContents=session.messages.filter(message=>message.role==='toolResult'&&message.toolName==='get_tasks').map(message=>{assert.equal(message.role,'toolResult');return JSON.stringify(message.role==='toolResult'?message.content:[]);});assert.equal(taskReadContents.length,2);assert.match(taskReadContents[0],/original task/);assert.match(taskReadContents[1],/updated session task/);
+  const writeResult=session.messages.findLast(message=>message.role==='toolResult'&&message.toolName==='write');assert.ok(writeResult?.role==='toolResult'&&writeResult.isError);assert.match(JSON.stringify(writeResult.content),/owns this workspace/);
+  await assert.rejects(readFile(join(directory,'parent-write.txt')),{code:'ENOENT'});
+ }finally{release();if(session){await session.extensionRunner.emit({type:'session_shutdown',reason:'quit'});session.dispose();}for(const [key,value]of Object.entries({PI_SUBAGENT_STORAGE:old.storage,PI_SUBAGENT_AGENTS:old.agents})){if(value===undefined)delete process.env[key];else process.env[key]=value;}await rm(directory,{recursive:true,force:true});}
+});
