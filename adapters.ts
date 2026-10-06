@@ -19,7 +19,7 @@ function bindWorkspaceArguments(name: string, args: Record<string, unknown>, cwd
   const bound = { ...args };
   if (name === "bash" && typeof bound.command === "string") {
     bound.command = `(cd -- ${shellQuote(cwd)} && {\n${bound.command}\n})`;
-  } else if (name === "read" && typeof bound.path === "string" && !isAbsolute(bound.path)) {
+  } else if ((name === "read" || name === "write" || name === "edit") && typeof bound.path === "string" && !isAbsolute(bound.path)) {
     bound.path = resolve(cwd, bound.path);
   } else if (["grep", "find", "ls"].includes(name)) {
     // These Pi built-ins resolve omitted scopes from the host cwd. Make the
@@ -63,7 +63,7 @@ export function bridgeTools(agent: AgentDefinition, ctx: ExtensionToolContext, n
   workspace?: { cwd: string }, builtinTools: ReadonlySet<string> = new Set(),
   declaredWorkspaceIndependent: ReadonlySet<string> = new Set()): ToolRegistration[] {
   const { tools } = selectTools(agent, ctx.tools.map((tool) => tool.name));
-  const boundBuiltinNames = new Set(["bash", "read", "grep", "find", "ls"]);
+  const boundBuiltinNames = new Set(["bash", "read", "write", "edit", "grep", "find", "ls"]);
   const registrations = tools.filter((name) => !workspace ||
     (boundBuiltinNames.has(name) && builtinTools.has(name)) || declaredWorkspaceIndependent.has(name)).map((name) => {
     const source = ctx.tools.find((tool) => tool.name === name)!;
