@@ -34,9 +34,12 @@ export function usageToReport(run: Run, entries: readonly { type: string; messag
   };
   for (const entry of entries) {
     if (entry.type !== "message") continue;
-    const message = entry.message as { role?: string; toolName?: string; details?: { id?: string; usage?: Usage; steps?: { id?: string; usage?: Usage }[] } } | undefined;
+    const message = entry.message as { role?: string; toolName?: string; usage?: Usage; details?: { id?: string; nonblocking?: boolean; usage?: Usage; steps?: { id?: string; usage?: Usage }[] } } | undefined;
     if (message?.role === "toolResult" && ["subagent", "subagent_status", "subagent_wait", "subagent_cancel", "subagent_steer"].includes(message.toolName ?? "")) {
       const delivered = message.details?.id === run.id ? message.details : message.details?.steps?.find((step) => step.id === run.id);
+      // A detached start returns identity/progress, never a usage report, even if
+      // a very fast execution has already accrued spend before the handle is published.
+      if (message.toolName === "subagent" && delivered && "nonblocking" in delivered && delivered.nonblocking && !message.usage) continue;
       account(delivered?.usage);
     }
   }
