@@ -51,6 +51,12 @@ export function runMetadata(run: Run, options: { billed?: Usage; retrieved: bool
   return readings.join(" · ");
 }
 
+function isStickyOnly(details: unknown): boolean {
+  if (!details || typeof details !== "object" || !("version" in details) || details.version !== 1) return false;
+  const snapshot = details as Run | GroupSnapshot;
+  return snapshot.nonblocking === true && ["running", "pausing", "preparing-handoff", "paused"].includes(snapshot.status);
+}
+
 function groupSummary(group: GroupSnapshot): string {
   const byId = new Map(group.steps.map(run => [run.id, run]));
   return `Group ${group.id} · ${group.status} · ${group.activity}\n${group.presentation.entries.map((entry, index) => {
@@ -107,7 +113,16 @@ export default async function durableSubagent(pi: ExtensionAPI) {
     for (const item of await notifications.pending(ctx.sessionManager.getSessionId())) {
       if (!ownerLive) continue;
       const entries = ctx.sessionManager.getBranch();
-      const retained = entries.some(entry => entry.type === "custom_message" && entry.customType === NOTIFICATION_TYPE && (entry.details as Delivery | undefined)?.eventId === item.eventId);
+      const retained = entries.some(entry => {
+        if (entry.type === "custom_message") return entry.customType === NOTIFICATION_TYPE && (entry.details as Delivery | undefined)?.eventId === item.eventId;
+        if ((item.kind !== "succeeded" && item.kind !== "failed") || entry.type !== "message") return false;
+        const message = entry.message;
+        if (message.role !== "toolResult" || (message.toolName !== "subagent_wait" && message.toolName !== "subagent_status")) return false;
+        const run = message.details as Partial<Run> | undefined;
+        if (run?.version !== 1 || run.id !== item.runId || run.sessionId !== item.sessionId || run.status !== item.kind || `${run.id}:${run.executionAttempt ?? 0}` !== item.executionId) return false;
+        const answer = run.output ?? run.error;
+        return typeof answer === "string" && answer.length > 0 && message.content.some(part => part.type === "text" && part.text.includes(answer));
+      });
       if (retained) {
         await notifications.acknowledge(item.eventId);
         inFlight.delete(item.eventId);
@@ -185,7 +200,9 @@ export default async function durableSubagent(pi: ExtensionAPI) {
               return { handled: true };
             }));
           }
-          return component.render(width);
+          const lines = component.render(width);
+          while (lines.length && !clean(lines.at(-1)!).trim()) lines.pop();
+          return lines.length ? [...lines, ""] : lines;
         }, dispose,
       };
     }, { placement: "aboveEditor" });
@@ -437,6 +454,7 @@ export default async function durableSubagent(pi: ExtensionAPI) {
     renderResult(result, options, theme, context) {
       if (activeDelegations.has(context.toolCallId)) rowRedraws.set(context.toolCallId, context.invalidate);
       else rowRedraws.delete(context.toolCallId);
+      if (!context.isError && isStickyOnly(result.details)) return new Container();
       const state = context.state as RendererState;
       const details = result.details as Run | { steps?: Run[]; presentation?: DelegationPresentation } | undefined;
       if (details && typeof details === "object" && "steps" in details && Array.isArray(details.steps)) {
@@ -474,6 +492,7 @@ export default async function durableSubagent(pi: ExtensionAPI) {
     description: operation === "wait" ? "Wait up to 60 seconds (override waitSeconds) without stopping the child. Returns the current execution state." : `${operation === "cancel" ? "Cancel and await cleanup of" : "Inspect live progress and retained result for"} an execution owned by this session.`,
     parameters: Type.Object({ ...handleParameters, ...(operation === "wait" ? { waitSeconds: Type.Optional(Type.Number({ minimum: 0, maximum: 3600 })) } : {}) }),
     renderResult(result, options, theme, context) {
+      if (!context.isError && isStickyOnly(result.details)) return new Container();
       const details = result.details as GroupSnapshot | undefined;
       if (details && Array.isArray(details.steps)) return renderGroup(details.presentation, details.steps, options.expanded, theme, { state: context.state as RendererState, invalidate: context.invalidate });
       return renderGenericResult(result.content.filter(part => part.type === "text").map(part => clean(part.text)).join("\n"), options.expanded);
@@ -534,6 +553,7 @@ export default async function durableSubagent(pi: ExtensionAPI) {
       return { content: [{ type: "text", text: `Run ${run.id} · ${run.status} · conversation ${run.conversationId ?? run.id}\n${run.output ?? run.activity}\n${formatContextHealth(run.contextHealth!)}` }], details: run, isError: run.status === "failed", usage: run.nonblocking ? undefined : usageToReport(run, ctx.sessionManager.getBranch()) };
     },
     renderResult(result, options, theme, context) {
+      if (!context.isError && isStickyOnly(result.details)) return new Container();
       const run = result.details as Run | undefined;
       return run?.id ? renderRun(run, options.expanded, theme, { state: context.state as RendererState, invalidate: context.invalidate }) : renderGenericResult(result.content.map(part => part.type === "text" ? part.text : "").join("\n"), options.expanded);
     },

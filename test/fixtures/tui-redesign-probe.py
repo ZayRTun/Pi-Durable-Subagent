@@ -20,7 +20,7 @@ parser.add_argument('extension', type=Path)
 parser.add_argument('--width', type=int, default=80)
 parser.add_argument('--theme', choices=['dark', 'light'], default='dark')
 parser.add_argument('--mode', choices=['regular', 'fullscreen'], default='fullscreen')
-parser.add_argument('--scenario', choices=['single', 'ordered', 'chain', 'parallel', 'failure', 'cancel', 'cancel-chain', 'pause', 'baseline', 'supervised', 'supervised-pause', 'supervised-completion', 'supervised-group-ordered-pause', 'supervised-group-chain-pause', 'supervised-group-parallel-pause'], default='chain')
+parser.add_argument('--scenario', choices=['single', 'ordered', 'chain', 'parallel', 'failure', 'cancel', 'cancel-chain', 'pause', 'baseline', 'supervised', 'supervised-pause', 'supervised-completion', 'supervised-wait-completion', 'supervised-group-ordered-pause', 'supervised-group-chain-pause', 'supervised-group-parallel-pause'], default='chain')
 a = parser.parse_args()
 root, extension = a.root.resolve(), a.extension.resolve()
 assert root.name.startswith('durable-tui-'), 'Disposable durable-tui-* directory required'
@@ -144,9 +144,31 @@ def drain(seconds):
             raw.extend(chunk);consume(decoder.decode(chunk))
 
 
+def composer_top():
+    borders=[y for y,line in enumerate(screen) if ''.join(line).count('─') >= min(10, cols//2)]
+    assert len(borders)>=2, 'Composer borders are visible'
+    return borders[-2]
+
+
+def assert_sticky_gap():
+    top=composer_top()
+    assert not ''.join(screen[top-1]).strip(), 'One blank terminal row precedes composer border'
+    assert ''.join(screen[top-2]).strip(), 'Sticky content ends exactly two rows before composer border'
+
+
+def assert_removed_height():
+    top=composer_top()
+    last=max(y for y in range(top) if ''.join(screen[y]).strip())
+    assert top-last == 2, 'Removal restores only the native one-line composer spacer'
+
+
 def capture(name):
     text='\n'.join(''.join(line).rstrip() for line in screen)
     (root/f'{name}.txt').write_text(text)
+    if a.scenario.startswith('supervised') and name not in ('group-cancelled', 'group-continued', 'group-completed-markdown', 'sticky-removed', 'delivered-expanded'):
+        assert_sticky_gap()
+    if name in ('group-cancelled', 'sticky-removed') and a.mode=='regular':
+        assert_removed_height()
     checks=[]
     for y,line in enumerate(screen):
         string=''.join(line)
@@ -161,15 +183,23 @@ try:
     drain(2)
     os.write(master,(a.scenario+'\r').encode())
     drain(1.3)
+    if a.scenario != 'baseline':
+        deadline=time.monotonic()+3
+        while not (root/'events.jsonl').exists() and time.monotonic()<deadline:
+            drain(.1)
     initial,checks=capture('running-collapsed')
+    if a.scenario == 'parallel':
+        deadline=time.monotonic()+2
+        while initial.count('Running')<3 and time.monotonic()<deadline:
+            drain(.1);initial,checks=capture('running-collapsed')
     if a.scenario.startswith('supervised-group'):
         label='Parallel' if 'parallel' in a.scenario else 'Chain' if 'chain' in a.scenario else 'Ordered'
         assert 'Offline fixture complete.' in initial,'Parent remains free while group runs'
-        assert initial.count('Delegation · '+label)>=2,'Group renders in transcript and sticky area'
+        assert initial.count('Delegation · '+label)==1,'Live group renders only in sticky area'
         headers=[y for y,line in enumerate(screen) if 'Delegation · '+label in ''.join(line)]
         sticky_y=headers[-1]
         assert ''.join(screen[sticky_y]).startswith(' '),'Complete group has one-space outer inset'
-        if label!='Parallel': assert initial.count('Pending')>=4,'Both dependent rows remain pending'
+        if label!='Parallel': assert initial.count('Pending')==2,'Both dependent rows remain pending only in sticky'
         frames=[]
         for _ in range(3): drain(.13);frames.append(''.join(screen[sticky_y+1]))
         assert len(set(frames))>1,'Native group spinner advances'
@@ -178,6 +208,7 @@ try:
         assert 'Current tool' in expanded and 'npm test -- retry-policy' in expanded
         os.write(master,b'\x0f');drain(.15)
         if a.mode=='fullscreen':
+            sticky_y=next(y for y,line in enumerate(screen) if 'Delegation · '+label in ''.join(line))
             y=next(y for y in range(sticky_y+1,rows) if 'scout (' in ''.join(screen[y]));x=''.join(screen[y]).index('scout')+1
             os.write(master,f'\x1b[<0;{x};{y+1}M\x1b[<0;{x};{y+1}m'.encode());drain(.15)
             clicked,_=capture('group-child-expanded')
@@ -206,14 +237,14 @@ try:
         else:
             os.write(master,b'cancel supervised\r');drain(1)
             cancelled,_=capture('group-cancelled')
-            assert cancelled.count('Delegation · '+label)==2,'Cancelled group leaves transcript start and management result only'
+            assert cancelled.count('Delegation · '+label)==1,'Cancelled group leaves only terminal management result'
             if label=='Ordered': assert cancelled.count('Not run')==2,'Cancelled dependencies remain Not run'
         (root/'acceptance.json').write_text(json.dumps({'scenario':a.scenario,'width':a.width,'theme':a.theme,'mode':a.mode,'groupInset':True,'spinnerAdvanced':True,'stickyNativeGeometry':True,'pause':True,'continuation':label=='Chain','independentSiblings':label=='Parallel','paidProviderCalls':0},indent=2))
         print(f'PASS: native group {label} {a.width} {a.theme} {a.mode}')
     elif a.scenario.startswith('supervised'):
         assert 'Offline fixture complete.' in initial, 'Parent must finish while child tool waits'
         workerrows=[y for y,line in enumerate(screen) if 'worker (' in ''.join(line)]
-        assert len(workerrows)>=2, 'Transcript and sticky execution should both appear'
+        assert len(workerrows)==1, 'Live execution appears only in sticky'
         sticky_y=workerrows[-1]
         assert 'Running' in ''.join(screen[sticky_y+1])
         frames=[]
@@ -222,7 +253,7 @@ try:
         assert len(set(frames))>1, 'Sticky spinner advances while parent is idle'
         os.write(master,b'\x0f');drain(.15)
         expanded,_=capture('sticky-expanded')
-        assert expanded.count('Current tool')>=2,'Ctrl+O must expand sticky and transcript'
+        assert expanded.count('Current tool')==1,'Ctrl+O expands the sole sticky row'
         # Scroll the transcript without moving the composer sibling.
         if a.mode=='fullscreen':
             os.write(master,b'\x1b[5~');drain(.1)
@@ -246,14 +277,28 @@ try:
         if a.scenario == 'supervised-pause':
             drain(10)
             paused,_=capture('sticky-paused')
-            assert 'Paused' in paused and 'Handoff' in paused,'Safely paused detached work stays visible'
+            assert 'Paused' in paused,'Safely paused detached work stays visible'
+            if a.mode=='regular':
+                os.write(master,b'\x0f');drain(.15)
+                paused,_=capture('sticky-paused-expanded')
+            assert 'Handoff' in paused,'Expanded paused work displays retained handoff'
         if a.scenario == 'supervised-completion':
             drain(10)
+        elif a.scenario == 'supervised-wait-completion':
+            os.write(master,b'wait supervised\r');drain(10)
         else:
             os.write(master,b'cancel supervised\r');drain(1)
         cancelled,_=capture('sticky-removed')
-        # Cached start remains in transcript; the sticky sibling is entirely removed.
-        assert cancelled.count('worker (')==1, 'Delivered/cancelled execution removes the complete sticky area'
+        assert cancelled.count('worker (')==0, 'Sticky removal does not revive the cached start'
+        if a.scenario == 'supervised-wait-completion':
+            assert 'succeeded' in cancelled, 'Completed wait answer is visible after sticky removal'
+            entries=[json.loads(line) for file in (root/'sessions').rglob('*.jsonl') for line in file.read_text().splitlines() if line.strip()]
+            results=[entry['message'] for entry in entries if entry.get('type')=='message' and entry.get('message',{}).get('role')=='toolResult' and entry['message'].get('toolName')=='subagent_wait']
+            assert len(results)==1, 'Parent retains one completed wait result'
+            answer='\n'.join(part['text'] for part in results[0]['content'] if part.get('type')=='text')
+            assert '- Timeout behavior remains unchanged.' in answer and 'const exhausted = attempts >= retryLimit;' in answer, 'Full final answer remains in retained wait result'
+            notices=[entry for entry in entries if entry.get('type')=='custom_message' and entry.get('customType')=='durable-subagent-notification' and entry.get('details',{}).get('kind')=='succeeded']
+            assert notices==[], 'Retained final wait answer suppresses the automatic completion duplicate'
         if a.scenario == 'supervised-completion':
             assert 'succeeded' in cancelled, 'Completion inserted before sticky removal'
             os.write(master,b'\x0f');drain(.15)

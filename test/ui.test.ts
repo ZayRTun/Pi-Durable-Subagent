@@ -278,3 +278,44 @@ test("group rows composed inside a native Box stay in width and keep the backgro
     }
   }
 });
+
+test("authoritative live nonblocking results belong only to sticky, across tool surfaces", async (t) => {
+  initTheme("dark", false);
+  const loader = new DefaultResourceLoader({ cwd: fileURLToPath(new URL("../", import.meta.url)), agentDir: fileURLToPath(new URL("../", import.meta.url)), settingsManager: SettingsManager.inMemory(), noExtensions: true,
+    noSkills: true, noPromptTemplates: true, noThemes: true, additionalExtensionPaths: [fileURLToPath(new URL("../index.ts", import.meta.url))] });
+  await loader.reload();
+  assert.deepEqual(loader.getExtensions().errors, []);
+  const tools = loader.getExtensions().extensions.flatMap(extension => [...extension.tools.values()]);
+  for (const name of ["subagent", "subagent_status", "subagent_wait", "subagent_cancel", "subagent_followup"]) {
+    const tool = tools.find(tool => tool.definition.name === name)!;
+    const context = { args: {}, toolCallId: name, invalidate: () => {}, lastComponent: undefined, state: {}, cwd: process.cwd(), executionStarted: true, argsComplete: true, isPartial: false, expanded: false, showImages: false, isError: false };
+    const render = (details: unknown, isError = false) => clean(tool.definition.renderResult!({ content: [{ type: "text", text: "Visible result or error" }], details }, { expanded: false, isPartial: false }, theme, { ...context, isError } as never).render(100).join("\n"));
+    const visibleSingle = name === "subagent" || name === "subagent_followup" ? /worker \(Inspect files\)/ : /Visible result or error/;
+    await t.test(`${name} single results`, () => {
+      for (const status of ["running", "pausing", "preparing-handoff", "paused"] as const) {
+        const live = run("worker", status, { nonblocking: true });
+        assert.equal(render(live), "", `${name} ${status}`);
+        assert.match(render({ ...live, nonblocking: false }), visibleSingle, `${name} blocking ${status}`);
+        assert.match(render(live, true), visibleSingle, `${name} actual error`);
+      }
+      for (const status of ["succeeded", "failed", "aborted", "interrupted"] as const) {
+        assert.match(render(run("worker", status, { nonblocking: true })), visibleSingle, `${name} terminal ${status}`);
+      }
+      assert.match(render({}, true), /Visible result or error/);
+    });
+    if (name === "subagent_followup") continue;
+    await t.test(`${name} group results`, () => {
+      const child = run("scout", "paused", { nonblocking: true });
+      const pending = run("reviewer", "interrupted", { nonblocking: true });
+      const group = { version: 1, id: "group", sessionId: "test", nonblocking: true, status: "running", activity: "Paused dependency", seeds: [child, pending], steps: [child, pending], presentation: { mode: "chain", entries: [
+        { runId: child.id, agent: "scout", requestedTask: "Inspect files", phase: "run" },
+        { runId: pending.id, agent: "reviewer", requestedTask: "Review files", phase: "pending" },
+      ] } };
+      assert.equal(render(group), "", `${name} live group with interrupted pending seed`);
+      assert.match(render({ ...group, nonblocking: false }), /Delegation · Chain/);
+      for (const status of ["succeeded", "failed", "aborted", "interrupted"]) assert.match(render({ ...group, status }), /Delegation · Chain/);
+      assert.match(render(group, true), /Delegation · Chain/);
+      assert.equal(render(group), "", `${name} cached start stays hidden after terminal retrieval`);
+    });
+  }
+});

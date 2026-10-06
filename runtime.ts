@@ -379,6 +379,7 @@ export class Runtime {
     const group = this.groups.get(id)?.group ?? await this.readGroup(id);
     if (!group || group.sessionId !== sessionId) throw new Error("Group belongs to another Pi session or does not exist");
     const snapshot = await this.groupStatus(id, sessionId);
+    if (!childId && TERMINAL_STATUSES.includes(snapshot.status)) return snapshot;
     group.presentation = snapshot.presentation;
     if (!childId) { group.cancelled = true; this.groups.get(id)?.controller.abort("cancelled"); }
     for (const [index, seed] of group.seeds.entries()) {

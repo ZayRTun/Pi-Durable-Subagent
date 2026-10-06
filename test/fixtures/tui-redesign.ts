@@ -21,6 +21,11 @@ export default function tuiFixture(pi: ExtensionAPI) {
     if (parent) {
       if (context.messages.at(-1)?.role === "toolResult") return fauxAssistantMessage("Offline fixture complete.");
       if (task.includes("baseline")) return fauxAssistantMessage([fauxToolCall("baseline_clip", {}, { id: "baseline" })], { stopReason: "toolUse" });
+      if (task.includes("wait supervised")) {
+        const start = context.messages.find(message => message.role === "toolResult" && message.toolName === "subagent");
+        const id = start?.role === "toolResult" ? (start.details as { id: string }).id : "";
+        return fauxAssistantMessage([fauxToolCall("subagent_wait", { run: id, waitSeconds: 20 }, { id: "wait-background" })], { stopReason: "toolUse" });
+      }
       if (task.includes("cancel supervised")) {
         const start = context.messages.find(message => message.role === "toolResult" && message.toolName === "subagent");
         const id = start?.role === "toolResult" ? (start.details as { id: string }).id : "";

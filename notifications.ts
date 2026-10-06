@@ -17,8 +17,6 @@ export interface Delivery {
   usageDelta?: Usage;
   deliveredAt?: number;
 }
-/** A separate durable outbox avoids racing Runtime's execution snapshots. Only message_end
- * or an existing message in retained host history can acknowledge an insertion. */
 export class Notifications {
   private records = new Map<string, Delivery[]>();
   private writes = Promise.resolve();

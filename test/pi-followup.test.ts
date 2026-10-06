@@ -69,15 +69,15 @@ test('host follow-up preserves unknown context capacity and refuses replacement 
  },0);
 });
 
-test('host nonblocking retained follow-ups notify and account once per execution',async()=>{
+test('host nonblocking retained follow-up waits deliver and account once per execution',async()=>{
  await host(async(call,childUsage,notifications)=>{
   const old=(await call('subagent',{agent:'worker',task:'The secret is orchid.',nonblocking:true})).details as Run;
-  const initial=await call('subagent_wait',{run:old.id,waitSeconds:5});assert.equal(initial.details.status,'succeeded');
+  const initial=await call('subagent_wait',{run:old.id,waitSeconds:5});assert.equal(initial.details.status,'succeeded');assert.equal(initial.details.output,'The secret is orchid.');assert.match(JSON.stringify(initial.content),/The secret is orchid\./);assert.deepEqual(initial.usage,childUsage[0]);
   const next=(await call('subagent_followup',{run:old.id,task:'What is the secret?',nonblocking:true})).details as Run;
   assert.equal(next.conversationId,old.id);
   const final=await call('subagent_wait',{run:next.id,waitSeconds:5});assert.equal(final.details.status,'succeeded');assert.equal(final.details.output,'The secret is orchid.');assert.deepEqual(final.usage,childUsage[1]);
   for(const id of [old.id,next.id,old.id,next.id])assert.equal((await call('subagent_status',{run:id})).usage,undefined);
-  const notices=notifications();assert.equal(notices.length,2);assert.deepEqual(notices.map(item=>item.executionId).sort(),[`${old.id}:0`,`${next.id}:0`].sort());
+  const notices=notifications();assert.deepEqual(notices,[],'Full final wait answers already delivered both executions');
  });
 });
 

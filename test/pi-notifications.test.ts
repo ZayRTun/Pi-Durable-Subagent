@@ -8,46 +8,60 @@ import { fauxProvider, fauxAssistantMessage, fauxToolCall } from '@earendil-work
 import type { ToolResultMessage } from '@earendil-works/pi-ai';
 import extension from '../index.ts';
 
-for (const reportedBeforeDelivery of [false, true]) {
-test(`busy parent receives one bounded execution result with ${reportedBeforeDelivery ? 'prior' : 'deferred'} host usage, retaining full retrieval across reload`, {timeout:15000},async()=>{
+for (const retrieval of ['deferred', 'status', 'wait', 'early-status', 'child-status', 'child-wait', 'failed-deferred', 'failed-status', 'failed-wait'] as const) {
+const reportedBeforeDelivery = retrieval.endsWith('status') && retrieval !== 'early-status' || retrieval.endsWith('wait');
+const failed = retrieval.startsWith('failed-');
+const childHandle = retrieval.startsWith('child-');
+const earlyStatus = retrieval === 'early-status';
+test(`busy parent completion with ${retrieval} retrieval retains full answers and usage across reload`, {timeout:15000},async()=>{
  const directory=await mkdtemp(join(tmpdir(),'pi-delivery-'));const old={storage:process.env.PI_SUBAGENT_STORAGE,agents:process.env.PI_SUBAGENT_AGENTS};
  process.env.PI_SUBAGENT_STORAGE=join(directory,'runs');process.env.PI_SUBAGENT_AGENTS=directory;
  let session:Awaited<ReturnType<typeof createAgentSession>>['session']|undefined;
  let childRelease!:()=>void,parentRelease!:()=>void;const childGate=new Promise<void>(r=>childRelease=r),parentGate=new Promise<void>(r=>parentRelease=r);
- let childDone!:()=>void,parentBusy!:()=>void;const childReady=new Promise<void>(r=>childDone=r),busy=new Promise<void>(r=>parentBusy=r);let handle='';let step=0;
- const answer='Final useful answer. '+ 'retained detail '.repeat(700);
+ let childDone!:()=>void,parentBusy!:()=>void;const childReady=new Promise<void>(r=>childDone=r),busy=new Promise<void>(r=>parentBusy=r);let handle='',sibling='';let step=0;
+ const answer=failed?'Delegation unanswered: model_error\nProvider error: 400 Concrete permanent failure':'Final useful answer. '+ 'retained detail '.repeat(700);
+ const answerField=failed?'error':'output';
  try{
   await writeFile(join(directory,'worker.md'),'---\nname: worker\ndescription: worker\ntools: []\n---\nWork.');
   const faux=fauxProvider();faux.setResponses(Array.from({length:40},()=>async context=>{
    const parent=context.messages.some(m=>m.role==='system'&&m.toolsAdded?.some(t=>t.name==='subagent'));
-   if(!parent){await childGate;childDone();return fauxAssistantMessage(answer);}
+   if(!parent){await childGate;childDone();return failed?fauxAssistantMessage([],{stopReason:'error',errorMessage:'400 Concrete permanent failure'}):fauxAssistantMessage(answer);}
    step++;
-   if(step===1)return fauxAssistantMessage([fauxToolCall('subagent',{agent:'worker',task:'Return the retained answer.',nonblocking:true},{id:'start-delivery'})],{stopReason:'toolUse'});
-   if(step===2){const result=context.messages.findLast(m=>m.role==='toolResult');assert.ok(result?.role==='toolResult');handle=(result.details as {id:string}).id;return fauxAssistantMessage('Parent start settled.');}
-   if(step===3){parentBusy();await parentGate;return reportedBeforeDelivery ? fauxAssistantMessage([fauxToolCall('subagent_status',{run:handle},{id:'report-before-delivery'})],{stopReason:'toolUse'}) : fauxAssistantMessage('Parent busy turn settled.');}
+   if(step===1)return fauxAssistantMessage([fauxToolCall('subagent',childHandle?{agent:'worker',tasks:[{task:'Return the retained answer.'},{task:'Return another retained answer.'}],nonblocking:true}:{agent:'worker',task:'Return the retained answer.',nonblocking:true},{id:'start-delivery'})],{stopReason:'toolUse'});
+   if(step===2){const result=context.messages.findLast(m=>m.role==='toolResult');assert.ok(result?.role==='toolResult');if(childHandle){const entries=(result.details as {presentation:{entries:{runId:string}[]}}).presentation.entries;handle=entries[0]!.runId;sibling=entries[1]!.runId;}else handle=(result.details as {id:string}).id;return fauxAssistantMessage('Parent start settled.');}
+   if(earlyStatus&&step===3)return fauxAssistantMessage([fauxToolCall('subagent_status',{run:handle},{id:'inspect-running'})],{stopReason:'toolUse'});
+   if(step===(earlyStatus?4:3)){parentBusy();await parentGate;return reportedBeforeDelivery ? fauxAssistantMessage([handle,...(childHandle?[sibling]:[])].map((run,index)=>fauxToolCall(retrieval.endsWith('wait')?'subagent_wait':'subagent_status',{run},{id:`report-before-delivery-${index}`})),{stopReason:'toolUse'}) : fauxAssistantMessage('Parent busy turn settled.');}
    if(reportedBeforeDelivery&&step===4)return fauxAssistantMessage('Reported before delivery.');
-   if(step===(reportedBeforeDelivery?5:4)||step===(reportedBeforeDelivery?7:6)||step===(reportedBeforeDelivery?9:8))return fauxAssistantMessage([fauxToolCall('subagent_status',{run:handle},{id:`inspect-${step}`})],{stopReason:'toolUse'});
+   if(step===(reportedBeforeDelivery||earlyStatus?5:4)||step===(reportedBeforeDelivery||earlyStatus?7:6)||step===(reportedBeforeDelivery||earlyStatus?9:8))return fauxAssistantMessage([fauxToolCall('subagent_status',{run:handle},{id:`inspect-${step}`})],{stopReason:'toolUse'});
    return fauxAssistantMessage('Inspected full retained answer.');
   }));
   const modelRuntime=await ModelRuntime.create({authPath:join(directory,'auth.json'),modelsPath:null,modelsStorePath:join(directory,'models.json'),refreshOnCreate:false});modelRuntime.registerNativeProvider(faux.provider);
-  const settingsManager=SettingsManager.inMemory({defaultTools:['subagent','subagent_status']});const manager=SessionManager.inMemory(directory);
+  const settingsManager=SettingsManager.inMemory({defaultTools:['subagent','subagent_status','subagent_wait']});const manager=SessionManager.inMemory(directory);
   const loader=new DefaultResourceLoader({cwd:directory,agentDir:directory,settingsManager,noExtensions:true,noSkills:true,noPromptTemplates:true,noThemes:true,extensionFactories:[extension]});await loader.reload();
   ({session}=await createAgentSession({cwd:directory,agentDir:directory,modelRuntime,model:faux.getModel(),settingsManager,resourceLoader:loader,sessionManager:manager,thinkingLevel:'off'}));await session.bindExtensions({mode:'print'});
   await session.prompt('Start background.');const pending=session.prompt('Keep parent busy.');await busy;childRelease();await childReady;
   // Wait through the public session inspection seam for child completion, while the parent remains busy.
   await new Promise(r=>setTimeout(r,200));
   const notifications=()=>session!.messages.filter(m=>m.role==='custom'&&m.customType==='durable-subagent-notification');
-  assert.equal(notifications().length,0);parentRelease();await pending;
-  assert.equal(notifications().length,1);const delivered=notifications()[0]!;assert.ok(delivered.role==='custom');assert.ok(JSON.stringify(delivered.content).length<4500);assert.match(JSON.stringify(delivered.content),/subagent_status/);
-  assert.equal((delivered.details as {executionId:string}).executionId,`${handle}:0`);
-  if(reportedBeforeDelivery)assert.equal((delivered.details as {usageDelta?:unknown}).usageDelta,undefined);else assert.ok((delivered.details as {usageDelta:{totalTokens:number}}).usageDelta.totalTokens > 0);
-  for(let i=0;i<2;i++){await session.prompt('Retrieve again.');const result: ToolResultMessage | undefined=session.messages.findLast((m): m is ToolResultMessage=>m.role==='toolResult');assert.ok(result?.role==='toolResult');assert.equal((result.details as {output:string}).output,answer);if(i===0&&!reportedBeforeDelivery)assert.deepEqual(result.usage,(delivered.details as {usage:unknown}).usage);else assert.equal(result.usage,undefined);}
-  // Simulate a crash after host insertion but before the durable receipt rename.
+  assert.equal(notifications().length,0);
+  if(earlyStatus){const running=session.messages.findLast((m):m is ToolResultMessage=>m.role==='toolResult');assert.equal((running!.details as {status:string}).status,'running');assert.doesNotMatch(JSON.stringify(running!.content),/Final useful answer/);}
+  parentRelease();await pending;
+  const expectedNotices=reportedBeforeDelivery?0:1;
+  assert.equal(notifications().length,expectedNotices);
+  const prior=session.messages.findLast((m):m is ToolResultMessage=>m.role==='toolResult');
+  if(childHandle){const child=session.messages.find((m):m is ToolResultMessage=>m.role==='toolResult'&&m.toolCallId==='report-before-delivery-0');assert.equal((child!.details as {id:string}).id,handle);assert.equal((child!.details as {output:string}).output,answer);assert.deepEqual(child!.usage,(child!.details as {usage:unknown}).usage);}
+  if(reportedBeforeDelivery){assert.equal((prior!.details as {output?:string;error?:string})[answerField],answer);assert.ok(prior!.content.some(part=>part.type==='text'&&part.text.includes(answer)));assert.deepEqual(prior!.usage,(prior!.details as {usage:unknown}).usage);}
+  const delivered=notifications()[0];
+  if(delivered){assert.ok(delivered.role==='custom');assert.ok(JSON.stringify(delivered.content).length<4500);assert.match(JSON.stringify(delivered.content),/subagent_status/);
+   assert.equal((delivered.details as {executionId:string}).executionId,`${handle}:0`);
+   assert.ok((delivered.details as {usageDelta:{totalTokens:number}}).usageDelta.totalTokens > 0);}
+  for(let i=0;i<2;i++){await session.prompt('Retrieve again.');const result: ToolResultMessage | undefined=session.messages.findLast((m): m is ToolResultMessage=>m.role==='toolResult');assert.ok(result?.role==='toolResult');assert.equal((result.details as {output?:string;error?:string})[answerField],answer);assert.ok(result.content.some(part=>part.type==='text'&&part.text.includes(answer)));if(i===0&&!reportedBeforeDelivery)assert.deepEqual(result.usage,(delivered!.details as {usage:unknown}).usage);else assert.equal(result.usage,undefined);}
   const deliveryPath=join(directory,'runs',handle,'deliveries.json');
   const ledger=JSON.parse(await readFile(deliveryPath,'utf8')) as {deliveredAt?:number}[];
   for(const item of ledger)delete item.deliveredAt;
   await writeFile(deliveryPath,JSON.stringify(ledger));
-  await session.reload();await session.prompt('Inspect after reload.');assert.equal(notifications().length,1);
+  await session.reload();await session.prompt('Inspect after reload.');assert.equal(notifications().length,expectedNotices);
+  const reloaded=session.messages.findLast((m):m is ToolResultMessage=>m.role==='toolResult');assert.equal((reloaded!.details as {output?:string;error?:string})[answerField],answer);assert.ok(reloaded!.content.some(part=>part.type==='text'&&part.text.includes(answer)));assert.equal(reloaded!.usage,undefined);
  }finally{childRelease();parentRelease();if(session){await session.extensionRunner.emit({type:'session_shutdown',reason:'quit'});session.dispose();}for(const[key,value]of Object.entries({PI_SUBAGENT_STORAGE:old.storage,PI_SUBAGENT_AGENTS:old.agents})){if(value===undefined)delete process.env[key];else process.env[key]=value;}await rm(directory,{recursive:true,force:true});}
 });
 }
