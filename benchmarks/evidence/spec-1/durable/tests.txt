@@ -1,0 +1,1189 @@
+
+> pi-durable-subagent@0.1.0 test
+> node --experimental-strip-types --test test/*.test.ts
+
+TAP version 13
+# Subtest: activity distinguishes tool work, queued work, model wait, streaming, retries and compaction
+ok 1 - activity distinguishes tool work, queued work, model wait, streaming, retries and compaction
+  ---
+  duration_ms: 0.518208
+  type: 'test'
+  ...
+# Subtest: structured interruption diagnostics flag uncertainty even when a result entry exists
+ok 2 - structured interruption diagnostics flag uncertainty even when a result entry exists
+  ---
+  duration_ms: 0.19075
+  type: 'test'
+  ...
+# Subtest: live interruption and cancellation diagnostics survive without text inference
+ok 3 - live interruption and cancellation diagnostics survive without text inference
+  ---
+  duration_ms: 0.46925
+  type: 'test'
+  ...
+# Subtest: tool log marks done-without-result uncertain, not ordinary completion or pending work
+ok 4 - tool log marks done-without-result uncertain, not ordinary completion or pending work
+  ---
+  duration_ms: 0.079875
+  type: 'test'
+  ...
+# Subtest: tool arguments are read from real call arguments and summarized within bounds
+ok 5 - tool arguments are read from real call arguments and summarized within bounds
+  ---
+  duration_ms: 0.672208
+  type: 'test'
+  ...
+# Subtest: loads the self-contained fixture definitions without changing them
+ok 6 - loads the self-contained fixture definitions without changing them
+  ---
+  duration_ms: 39.653334
+  type: 'test'
+  ...
+# Subtest: records the realpath of a loaded definition, following a symlinked directory
+ok 7 - records the realpath of a loaded definition, following a symlinked directory
+  ---
+  duration_ms: 9.339583
+  type: 'test'
+  ...
+# Subtest: optional tools disappear without widening the allowlist
+ok 8 - optional tools disappear without widening the allowlist
+  ---
+  duration_ms: 0.987709
+  type: 'test'
+  ...
+# Subtest: missing or malformed allowlists fail closed
+ok 9 - missing or malformed allowlists fail closed
+  ---
+  duration_ms: 2.24025
+  type: 'test'
+  ...
+# Subtest: supports YAML lists, comments, and independent model/thinking declarations
+ok 10 - supports YAML lists, comments, and independent model/thinking declarations
+  ---
+  duration_ms: 1.6975
+  type: 'test'
+  ...
+# Subtest: rejects invalid configuration
+ok 11 - rejects invalid configuration
+  ---
+  duration_ms: 1.436083
+  type: 'test'
+  ...
+# Subtest: a delegating declaration is accepted, and delegation is never bridged from the caller's tool list
+ok 12 - a delegating declaration is accepted, and delegation is never bridged from the caller's tool list
+  ---
+  duration_ms: 0.67625
+  type: 'test'
+  ...
+# Subtest: missing agent directories report a load error without aborting extension initialization
+ok 13 - missing agent directories report a load error without aborting extension initialization
+  ---
+  duration_ms: 2.209375
+  type: 'test'
+  ...
+# Subtest: an earlier definition directory shadows a later one, and a later-only agent still loads
+ok 14 - an earlier definition directory shadows a later one, and a later-only agent still loads
+  ---
+  duration_ms: 21.914042
+  type: 'test'
+  ...
+# Subtest: duplicate names within a directory are rejected
+ok 15 - duplicate names within a directory are rejected
+  ---
+  duration_ms: 21.432042
+  type: 'test'
+  ...
+# Subtest: duplicate names within a directory are rejected even when shadowed
+ok 16 - duplicate names within a directory are rejected even when shadowed
+  ---
+  duration_ms: 60.4295
+  type: 'test'
+  ...
+# Subtest: unshadowed definitions without tool allowlists remain unavailable
+ok 17 - unshadowed definitions without tool allowlists remain unavailable
+  ---
+  duration_ms: 11.212375
+  type: 'test'
+  ...
+# Subtest: badge colors are validated against supported names or six-digit hex
+ok 18 - badge colors are validated against supported names or six-digit hex
+  ---
+  duration_ms: 0.895541
+  type: 'test'
+  ...
+# Subtest: provider/model syntax permits namespaced model IDs but not empty or whitespace parts
+ok 19 - provider/model syntax permits namespaced model IDs but not empty or whitespace parts
+  ---
+  duration_ms: 0.714375
+  type: 'test'
+  ...
+# Subtest: cannot bridge tools that bypass the Sub-agent's allowlist
+ok 20 - cannot bridge tools that bypass the Sub-agent's allowlist
+  ---
+  duration_ms: 1.332625
+  type: 'test'
+  ...
+# Subtest: an Agent without an allowance has no execution deadline
+ok 21 - an Agent without an allowance has no execution deadline
+  ---
+  duration_ms: 0.146709
+  type: 'test'
+  ...
+# (node:62365) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: host allowance boundary: handoff
+ok 22 - host allowance boundary: handoff
+  ---
+  duration_ms: 284.405084
+  type: 'test'
+  ...
+# Subtest: host allowance boundary: compact-continuation
+ok 23 - host allowance boundary: compact-continuation
+  ---
+  duration_ms: 377.051208
+  type: 'test'
+  ...
+# Subtest: host allowance boundary: continuation
+ok 24 - host allowance boundary: continuation
+  ---
+  duration_ms: 300.333417
+  type: 'test'
+  ...
+# Subtest: host allowance boundary: escalation
+ok 25 - host allowance boundary: escalation
+  ---
+  duration_ms: 327.412
+  type: 'test'
+  ...
+# Subtest: host allowance boundary: handoff-tool
+ok 26 - host allowance boundary: handoff-tool
+  ---
+  duration_ms: 185.8595
+  type: 'test'
+  ...
+# Subtest: host allowance boundary: permanent-error
+ok 27 - host allowance boundary: permanent-error
+  ---
+  duration_ms: 171.771791
+  type: 'test'
+  ...
+# Subtest: host allowance boundary: cancel
+ok 28 - host allowance boundary: cancel
+  ---
+  duration_ms: 128.235459
+  type: 'test'
+  ...
+# Subtest: host allowance boundary: shutdown
+ok 29 - host allowance boundary: shutdown
+  ---
+  duration_ms: 123.352
+  type: 'test'
+  ...
+# (node:62366) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: a chain hands each step the previous step's answer
+ok 30 - a chain hands each step the previous step's answer
+  ---
+  duration_ms: 380.247792
+  type: 'test'
+  ...
+# Subtest: nesting reaches depth three, shares the caller's directory without deadlocking, and stops there
+ok 31 - nesting reaches depth three, shares the caller's directory without deadlocking, and stops there
+  ---
+  duration_ms: 140.77375
+  type: 'test'
+  ...
+# (node:62367) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: the shared cost formatter is pure and keeps normal amounts unchanged
+ok 32 - the shared cost formatter is pure and keeps normal amounts unchanged
+  ---
+  duration_ms: 0.442375
+  type: 'test'
+  ...
+# Subtest: model-facing metadata never renders a positive cost as $0.0000
+ok 33 - model-facing metadata never renders a positive cost as $0.0000
+  ---
+  duration_ms: 0.24725
+  type: 'test'
+  ...
+# Subtest: the compact TUI never renders a positive cost as $0.0000
+ok 34 - the compact TUI never renders a positive cost as $0.0000
+  ---
+  duration_ms: 27.736291
+  type: 'test'
+  ...
+# Subtest: a cost below four-decimal resolution is reported as an honest upper bound
+ok 35 - a cost below four-decimal resolution is reported as an honest upper bound
+  ---
+  duration_ms: 0.71825
+  type: 'test'
+  ...
+# Subtest: normal amounts keep their existing four-decimal rendering
+ok 36 - normal amounts keep their existing four-decimal rendering
+  ---
+  duration_ms: 0.659709
+  type: 'test'
+  ...
+# Subtest: a run with no recorded cost shows no cost reading at all
+ok 37 - a run with no recorded cost shows no cost reading at all
+  ---
+  duration_ms: 0.70275
+  type: 'test'
+  ...
+# (node:62368) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: host Delegation: malformed policy does not start child work
+ok 38 - host Delegation: malformed policy does not start child work
+  ---
+  duration_ms: 125.680458
+  type: 'test'
+  ...
+# Subtest: host Delegation: omitted policies allow progress beyond the former deadline
+ok 39 - host Delegation: omitted policies allow progress beyond the former deadline
+  ---
+  duration_ms: 172.994625
+  type: 'test'
+  ...
+# Subtest: host Delegation: explicit no deadline overrides the Agent allowance
+ok 40 - host Delegation: explicit no deadline overrides the Agent allowance
+  ---
+  duration_ms: 152.291292
+  type: 'test'
+  ...
+# Subtest: host Delegation: explicit duration overrides the Agent allowance
+ok 41 - host Delegation: explicit duration overrides the Agent allowance
+  ---
+  duration_ms: 123.033542
+  type: 'test'
+  ...
+# Subtest: host Delegation: omitted parent policy uses the Agent allowance
+ok 42 - host Delegation: omitted parent policy uses the Agent allowance
+  ---
+  duration_ms: 106.62225
+  type: 'test'
+  ...
+# Subtest: a missing config, or one without agentDirectories, uses the standalone default
+ok 43 - a missing config, or one without agentDirectories, uses the standalone default
+  ---
+  duration_ms: 36.733417
+  type: 'test'
+  ...
+# Subtest: a truthy PI_SUBAGENT_AGENTS path list wins over the config
+ok 44 - a truthy PI_SUBAGENT_AGENTS path list wins over the config
+  ---
+  duration_ms: 5.679125
+  type: 'test'
+  ...
+# Subtest: an explicitly nonempty but blank environment override fails closed
+ok 45 - an explicitly nonempty but blank environment override fails closed
+  ---
+  duration_ms: 6.650708
+  type: 'test'
+  ...
+# Subtest: configured relative paths resolve against the config directory, absolute paths stay, and ~ expands
+ok 46 - configured relative paths resolve against the config directory, absolute paths stay, and ~ expands
+  ---
+  duration_ms: 7.49525
+  type: 'test'
+  ...
+# Subtest: an explicit empty array loads no definitions without an error
+ok 47 - an explicit empty array loads no definitions without an error
+  ---
+  duration_ms: 7.384333
+  type: 'test'
+  ...
+# Subtest: unreadable, malformed, or invalidly typed configs fail closed, never widening to the default
+ok 48 - unreadable, malformed, or invalidly typed configs fail closed, never widening to the default
+  ---
+  duration_ms: 17.1115
+  type: 'test'
+  ...
+# (node:62372) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: nonblocking follow-up rejects concurrent task and compaction, preserves old result during cancellation
+ok 49 - nonblocking follow-up rejects concurrent task and compaction, preserves old result during cancellation
+  ---
+  duration_ms: 146.241666
+  type: 'test'
+  ...
+# Subtest: retained follow-up reacquires capacity and workspace ownership before submitting a new task
+ok 50 - retained follow-up reacquires capacity and workspace ownership before submitting a new task
+  ---
+  duration_ms: 77.133125
+  type: 'test'
+  ...
+# Subtest: follow-up consumes retained tool result without replaying effects or inheriting prior tool counts
+ok 51 - follow-up consumes retained tool result without replaying effects or inheriting prior tool counts
+  ---
+  duration_ms: 64.223667
+  type: 'test'
+  ...
+# Subtest: follow-up never adds a tool that was unavailable to the original execution
+ok 52 - follow-up never adds a tool that was unavailable to the original execution
+  ---
+  duration_ms: 64.472209
+  type: 'test'
+  ...
+# (node:62374) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: host handoff retries: transient-success
+ok 53 - host handoff retries: transient-success
+  ---
+  duration_ms: 6262.534625
+  type: 'test'
+  ...
+# Subtest: host handoff retries: exhausted
+ok 54 - host handoff retries: exhausted
+  ---
+  duration_ms: 14177.538583
+  type: 'test'
+  ...
+# Subtest: host handoff retries: permanent
+ok 55 - host handoff retries: permanent
+  ---
+  duration_ms: 154.731958
+  type: 'test'
+  ...
+# Subtest: host handoff retries: empty-corrected
+ok 56 - host handoff retries: empty-corrected
+  ---
+  duration_ms: 153.225083
+  type: 'test'
+  ...
+# Subtest: host handoff retries: empty-repeat
+ok 57 - host handoff retries: empty-repeat
+  ---
+  duration_ms: 274.41
+  type: 'test'
+  ...
+# Subtest: host handoff retries: empty-exhausted
+ok 58 - host handoff retries: empty-exhausted
+  ---
+  duration_ms: 153.119208
+  type: 'test'
+  ...
+# Subtest: host handoff retries: empty-budget
+ok 59 - host handoff retries: empty-budget
+  ---
+  duration_ms: 8173.484375
+  type: 'test'
+  ...
+# Subtest: host handoff retries: unlimited
+ok 60 - host handoff retries: unlimited
+  ---
+  duration_ms: 30193.799333
+  type: 'test'
+  ...
+# Subtest: host handoff retries: cancel-backoff
+ok 61 - host handoff retries: cancel-backoff
+  ---
+  duration_ms: 148.647209
+  type: 'test'
+  ...
+# Subtest: host handoff retries: shutdown-backoff
+ok 62 - host handoff retries: shutdown-backoff
+  ---
+  duration_ms: 147.251042
+  type: 'test'
+  ...
+# (node:62375) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: retrieving a completed tasks step reports no new usage
+ok 63 - retrieving a completed tasks step reports no new usage
+  ---
+  duration_ms: 377.870542
+  type: 'test'
+  ...
+# Subtest: retrieving a completed chain step reports no new usage
+ok 64 - retrieving a completed chain step reports no new usage
+  ---
+  duration_ms: 108.440333
+  type: 'test'
+  ...
+# (node:62377) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: the model-facing tool result carries a compact per-run metadata line with model, thinking, duration and billed usage
+ok 65 - the model-facing tool result carries a compact per-run metadata line with model, thinking, duration and billed usage
+  ---
+  duration_ms: 292.601084
+  type: 'test'
+  ...
+# Subtest: retrieving a stored run does not re-report delivered usage
+ok 66 - retrieving a stored run does not re-report delivered usage
+  ---
+  duration_ms: 99.596583
+  type: 'test'
+  ...
+# Subtest: retrieving a stored run identifies historical usage reported on a new branch
+ok 67 - retrieving a stored run identifies historical usage reported on a new branch
+  ---
+  duration_ms: 59.674333
+  type: 'test'
+  ...
+# Subtest: inherit-parent resolves to the caller's own model, past any pool or pin
+ok 68 - inherit-parent resolves to the caller's own model, past any pool or pin
+  ---
+  duration_ms: 0.79225
+  type: 'test'
+  ...
+# Subtest: writing pools merges into the config file and validates every model reference
+ok 69 - writing pools merges into the config file and validates every model reference
+  ---
+  duration_ms: 30.711417
+  type: 'test'
+  ...
+# Subtest: config is optional and a malformed one is reported rather than fatal
+ok 70 - config is optional and a malformed one is reported rather than fatal
+  ---
+  duration_ms: 22.018875
+  type: 'test'
+  ...
+# Subtest: resolution order is call model, then pool, then pin, then definition, then parent
+ok 71 - resolution order is call model, then pool, then pin, then definition, then parent
+  ---
+  duration_ms: 0.385084
+  type: 'test'
+  ...
+# Subtest: an unconfigured pool falls back and says so instead of pretending it resolved
+ok 72 - an unconfigured pool falls back and says so instead of pretending it resolved
+  ---
+  duration_ms: 0.096
+  type: 'test'
+  ...
+# Subtest: a model write preserves unrelated top-level fields and refuses to overwrite malformed configs
+ok 73 - a model write preserves unrelated top-level fields and refuses to overwrite malformed configs
+  ---
+  duration_ms: 16.6495
+  type: 'test'
+  ...
+# (node:62379) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: several steps run in order and are each recorded as their own run
+ok 74 - several steps run in order and are each recorded as their own run
+  ---
+  duration_ms: 324.097041
+  type: 'test'
+  ...
+# (node:62381) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: unsafe interrupted calls are not rerun; storage/workspace ownership prevents competing runs
+ok 75 - unsafe interrupted calls are not rerun; storage/workspace ownership prevents competing runs
+  ---
+  duration_ms: 68.408834
+  type: 'test'
+  ...
+# CLI acceptance artifacts: /var/folders/zk/6zwx9y7n6g5_3qgr3_62x0xr0000gn/T/durable-cli-kill-OVvLEj
+# (node:62382) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: real Pi CLI SIGKILL recovery: paused reopen, approval, stale leases, no duplicate effect, cached retrieval
+ok 76 - real Pi CLI SIGKILL recovery: paused reopen, approval, stale leases, no duplicate effect, cached retrieval
+  ---
+  duration_ms: 12519.112459
+  type: 'test'
+  ...
+# (node:62384) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: combined host gate: detached Chain, parent reasoning, steering, allowance retry, reopen, continuation, compaction and retained follow-up
+ok 77 - combined host gate: detached Chain, parent reasoning, steering, allowance retry, reopen, continuation, compaction and retained follow-up
+  ---
+  duration_ms: 2756.853875
+  type: 'test'
+  ...
+# Subtest: combined host gate: interrupted detached effect, reopen approval, fresh permission adapters, retained follow-up and terminal cancellation
+ok 78 - combined host gate: interrupted detached effect, reopen approval, fresh permission adapters, retained follow-up and terminal cancellation
+  ---
+  duration_ms: 164.076375
+  type: 'test'
+  ...
+# (node:62385) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: host inspection measures retained context rather than billed total and requires an explicit warning decision
+ok 79 - host inspection measures retained context rather than billed total and requires an explicit warning decision
+  ---
+  duration_ms: 142.705708
+  type: 'test'
+  ...
+# Subtest: host status reports both sides of warning and fresh thresholds for small and large windows
+ok 80 - host status reports both sides of warning and fresh thresholds for small and large windows
+  ---
+  duration_ms: 386.446625
+  type: 'test'
+  ...
+# Subtest: explicit host compaction preserves historical result and accounting and reports actual summary placement
+ok 81 - explicit host compaction preserves historical result and accounting and reports actual summary placement
+  ---
+  duration_ms: 59.214459
+  type: 'test'
+  ...
+# Subtest: host reports unsuccessful paid compaction and preserves historical answer
+ok 82 - host reports unsuccessful paid compaction and preserves historical answer
+  ---
+  duration_ms: 59.826708
+  type: 'test'
+  ...
+# Subtest: explicit host compaction reports no-op for short retained context
+ok 83 - explicit host compaction reports no-op for short retained context
+  ---
+  duration_ms: 58.031708
+  type: 'test'
+  ...
+# Subtest: host refuses compaction during active work without resetting the conversation
+ok 84 - host refuses compaction during active work without resetting the conversation
+  ---
+  duration_ms: 27.505542
+  type: 'test'
+  ...
+# (node:62386) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: host follow-up uses retained facts under a new execution and retrieves both answers without rebilling
+ok 85 - host follow-up uses retained facts under a new execution and retrieves both answers without rebilling
+  ---
+  duration_ms: 145.523084
+  type: 'test'
+  ...
+# Subtest: host requires explicit reuse after warning and keeps a fresh-conversation alternative
+ok 86 - host requires explicit reuse after warning and keeps a fresh-conversation alternative
+  ---
+  duration_ms: 70.575417
+  type: 'test'
+  ...
+# Subtest: host follow-up preserves unknown context capacity and refuses replacement of authority
+ok 87 - host follow-up preserves unknown context capacity and refuses replacement of authority
+  ---
+  duration_ms: 56.338416
+  type: 'test'
+  ...
+# Subtest: host nonblocking retained follow-ups notify and account once per execution
+ok 88 - host nonblocking retained follow-ups notify and account once per execution
+  ---
+  duration_ms: 90.29125
+  type: 'test'
+  ...
+# Subtest: host follow-up excludes earlier separately billed compaction and later execution history
+ok 89 - host follow-up excludes earlier separately billed compaction and later execution history
+  ---
+  duration_ms: 114.223333
+  type: 'test'
+  ...
+# Subtest: completed group child follow-up leaves historical group membership and answers unchanged
+ok 90 - completed group child follow-up leaves historical group membership and answers unchanged
+  ---
+  duration_ms: 67.460583
+  type: 'test'
+  ...
+# (node:62387) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: host Chain holds dependent across pause and reload, then hands off only the continued final answer
+ok 91 - host Chain holds dependent across pause and reload, then hands off only the continued final answer
+  ---
+  duration_ms: 293.978375
+  type: 'test'
+  ...
+# Subtest: nonblocking Ordered returns its group, holds pending children and cancelling an unstarted child leaves Not run
+ok 92 - nonblocking Ordered returns its group, holds pending children and cancelling an unstarted child leaves Not run
+  ---
+  duration_ms: 392.350417
+  type: 'test'
+  ...
+# Subtest: Parallel children finish independently of sibling pause, model failure and targeted cancellation without rebilling retrieval
+ok 93 - Parallel children finish independently of sibling pause, model failure and targeted cancellation without rebilling retrieval
+  ---
+  duration_ms: 599.637291
+  type: 'test'
+  ...
+# Subtest: Parallel capacity rejects each excess actual child with no later hidden queue
+ok 94 - Parallel capacity rejects each excess actual child with no later hidden queue
+  ---
+  duration_ms: 336.446416
+  type: 'test'
+  ...
+# (node:62391) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: real Pi SDK inline delegation supplies workspace and preserves hooks with optional tools absent
+ok 95 - real Pi SDK inline delegation supplies workspace and preserves hooks with optional tools absent
+  ---
+  duration_ms: 131.244125
+  type: 'test'
+  ...
+# Subtest: real Pi SDK inline delegation supplies workspace and preserves hooks with optional tools present
+ok 96 - real Pi SDK inline delegation supplies workspace and preserves hooks with optional tools present
+  ---
+  duration_ms: 68.764833
+  type: 'test'
+  ...
+# Subtest: real Pi SDK file delegation supplies workspace and preserves hooks with optional tools absent
+ok 97 - real Pi SDK file delegation supplies workspace and preserves hooks with optional tools absent
+  ---
+  duration_ms: 77.649292
+  type: 'test'
+  ...
+# Subtest: real Pi SDK file delegation supplies workspace and preserves hooks with optional tools present
+ok 98 - real Pi SDK file delegation supplies workspace and preserves hooks with optional tools present
+  ---
+  duration_ms: 70.785
+  type: 'test'
+  ...
+# (node:62393) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: busy parent receives one bounded execution result with deferred host usage, retaining full retrieval across reload
+ok 99 - busy parent receives one bounded execution result with deferred host usage, retaining full retrieval across reload
+  ---
+  duration_ms: 328.884667
+  type: 'test'
+  ...
+# Subtest: busy parent receives one bounded execution result with prior host usage, retaining full retrieval across reload
+ok 100 - busy parent receives one bounded execution result with prior host usage, retaining full retrieval across reload
+  ---
+  duration_ms: 270.331167
+  type: 'test'
+  ...
+# Subtest: parent receives deduplicated failed attention while ordinary progress stays silent
+ok 101 - parent receives deduplicated failed attention while ordinary progress stays silent
+  ---
+  duration_ms: 482.130416
+  type: 'test'
+  ...
+# Subtest: parent receives deduplicated paused attention while ordinary progress stays silent
+ok 102 - parent receives deduplicated paused attention while ordinary progress stays silent
+  ---
+  duration_ms: 405.04975
+  type: 'test'
+  ...
+# Subtest: parent receives deduplicated blocker-stall attention while ordinary progress stays silent
+ok 103 - parent receives deduplicated blocker-stall attention while ordinary progress stays silent
+  ---
+  duration_ms: 2460.821167
+  type: 'test'
+  ...
+# (node:62395) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: normal SDK shutdown/reopen stays paused; operator-approved resume preserves workspace without replaying unsafe tools
+ok 104 - normal SDK shutdown/reopen stays paused; operator-approved resume preserves workspace without replaying unsafe tools
+  ---
+  duration_ms: 175.520958
+  type: 'test'
+  ...
+# Subtest: historical failed recovery requires approval, preserves failure until approved, and uses a fresh input
+ok 105 - historical failed recovery requires approval, preserves failure until approved, and uses a fresh input
+  ---
+  duration_ms: 66.869166
+  type: 'test'
+  ...
+# (node:62623) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: host steering persists acceptance during a shell and consumes at boundary before observable revised output
+ok 106 - host steering persists acceptance during a shell and consumes at boundary before observable revised output
+  ---
+  duration_ms: 117.422583
+  type: 'test'
+  ...
+# Subtest: host cancel discards bounded pending guidance without boundary consumption or automatic restart
+ok 107 - host cancel discards bounded pending guidance without boundary consumption or automatic restart
+  ---
+  duration_ms: 98.457666
+  type: 'test'
+  ...
+# Subtest: host shutdown discards bounded pending guidance without boundary consumption or automatic restart
+ok 108 - host shutdown discards bounded pending guidance without boundary consumption or automatic restart
+  ---
+  duration_ms: 71.77775
+  type: 'test'
+  ...
+# Subtest: host steering raced with completion never starts a new child task
+ok 109 - host steering raced with completion never starts a new child task
+  ---
+  duration_ms: 36.804958
+  type: 'test'
+  ...
+# (node:62652) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: installed host lets parent reason across wait expiry while detached tools keep live permissions and durable identity
+ok 110 - installed host lets parent reason across wait expiry while detached tools keep live permissions and durable identity
+  ---
+  duration_ms: 125.850875
+  type: 'test'
+  ...
+# Subtest: host capacity refuses busy without queue, blocks parent writes, cancels and cleans owner replacement without restart
+ok 111 - host capacity refuses busy without queue, blocks parent writes, cancels and cleans owner replacement without restart
+  ---
+  duration_ms: 88.31675
+  type: 'test'
+  ...
+# Subtest: done counts succeeded, failed, and aborted, and excludes running, interrupted, pending, and not-run
+ok 112 - done counts succeeded, failed, and aborted, and excludes running, interrupted, pending, and not-run
+  ---
+  duration_ms: 0.566792
+  type: 'test'
+  ...
+# Subtest: the heading reports flags only when present and sums recorded cost
+ok 113 - the heading reports flags only when present and sums recorded cost
+  ---
+  duration_ms: 0.182083
+  type: 'test'
+  ...
+# Subtest: mode labels are the approved names
+ok 114 - mode labels are the approved names
+  ---
+  duration_ms: 0.339
+  type: 'test'
+  ...
+# Subtest: workspace guidance preserves role, quotes unusual paths and never promises isolation
+ok 115 - workspace guidance preserves role, quotes unusual paths and never promises isolation
+  ---
+  duration_ms: 0.54125
+  type: 'test'
+  ...
+# Subtest: bounded-context guidance is present but stays short
+ok 116 - bounded-context guidance is present but stays short
+  ---
+  duration_ms: 0.076541
+  type: 'test'
+  ...
+# Subtest: a loaded definition names its source and directory without re-rooting tool paths
+ok 117 - a loaded definition names its source and directory without re-rooting tool paths
+  ---
+  duration_ms: 0.12225
+  type: 'test'
+  ...
+# Subtest: durable model adapter sends stable child session routing on generation and compaction
+ok 118 - durable model adapter sends stable child session routing on generation and compaction
+  ---
+  duration_ms: 2.417667
+  type: 'test'
+  ...
+# (node:62768) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: opening and inspecting persisted work does not execute it before explicit resume
+ok 119 - opening and inspecting persisted work does not execute it before explicit resume
+  ---
+  duration_ms: 17.12175
+  type: 'test'
+  ...
+# Subtest: accepts a delegation and a resume, and nothing in between
+ok 120 - accepts a delegation and a resume, and nothing in between
+  ---
+  duration_ms: 1.168625
+  type: 'test'
+  ...
+# Subtest: several steps keep their order and inherit the call's agent, role, and model
+ok 121 - several steps keep their order and inherit the call's agent, role, and model
+  ---
+  duration_ms: 0.218708
+  type: 'test'
+  ...
+# Subtest: a chain is sequential, and says so by refusing isolation it would invalidate
+ok 122 - a chain is sequential, and says so by refusing isolation it would invalidate
+  ---
+  duration_ms: 0.321417
+  type: 'test'
+  ...
+# Subtest: the spellings poteto's playbooks use resolve rather than fail
+ok 123 - the spellings poteto's playbooks use resolve rather than fail
+  ---
+  duration_ms: 0.204833
+  type: 'test'
+  ...
+# Subtest: a step list is bounded and every step must be usable
+ok 124 - a step list is bounded and every step must be usable
+  ---
+  duration_ms: 0.432916
+  type: 'test'
+  ...
+# Subtest: a named role and the task:<pool> form both select a pool
+ok 125 - a named role and the task:<pool> form both select a pool
+  ---
+  duration_ms: 0.115083
+  type: 'test'
+  ...
+# Subtest: an unsupported parameter fails loudly instead of being ignored
+ok 126 - an unsupported parameter fails loudly instead of being ignored
+  ---
+  duration_ms: 0.140834
+  type: 'test'
+  ...
+# Subtest: rejects malformed requests with a boundary-level error
+ok 127 - rejects malformed requests with a boundary-level error
+  ---
+  duration_ms: 0.207042
+  type: 'test'
+  ...
+# Subtest: execution allowance defaults and step overrides preserve explicit no deadline
+ok 128 - execution allowance defaults and step overrides preserve explicit no deadline
+  ---
+  duration_ms: 0.396667
+  type: 'test'
+  ...
+# Subtest: malformed execution policies are rejected before a Delegation can be started
+ok 129 - malformed execution policies are rejected before a Delegation can be started
+  ---
+  duration_ms: 0.938375
+  type: 'test'
+  ...
+# (node:62773) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: progress switches to tool work immediately and elapsed time keeps updating while blocked
+ok 130 - progress switches to tool work immediately and elapsed time keeps updating while blocked
+  ---
+  duration_ms: 1029.277125
+  type: 'test'
+  ...
+# Subtest: delegates, invokes a tool, stores result and retrieves without another model call
+ok 131 - delegates, invokes a tool, stores result and retrieves without another model call
+  ---
+  duration_ms: 19.570959
+  type: 'test'
+  ...
+# Subtest: terminal retrieval leaves record bytes and timestamps unchanged for every terminal state
+ok 132 - terminal retrieval leaves record bytes and timestamps unchanged for every terminal state
+  ---
+  duration_ms: 10.648417
+  type: 'test'
+  ...
+# Subtest: terminal retrieval succeeds while another delegation is active in the same workspace
+ok 133 - terminal retrieval succeeds while another delegation is active in the same workspace
+  ---
+  duration_ms: 21.505833
+  type: 'test'
+  ...
+# Subtest: a delegation that loses the cross-process workspace lock leaves no orphan record
+ok 134 - a delegation that loses the cross-process workspace lock leaves no orphan record
+  ---
+  duration_ms: 16.321416
+  type: 'test'
+  ...
+# Subtest: inspection reports the live activity of a running delegation without waking it
+ok 135 - inspection reports the live activity of a running delegation without waking it
+  ---
+  duration_ms: 33.790542
+  type: 'test'
+  ...
+# Subtest: shutdown preserves pending work; reopen is paused and explicit resume reuses the same run
+ok 136 - shutdown preserves pending work; reopen is paused and explicit resume reuses the same run
+  ---
+  duration_ms: 19.189291
+  type: 'test'
+  ...
+# Subtest: user cancellation is terminal and does not become resumable
+ok 137 - user cancellation is terminal and does not become resumable
+  ---
+  duration_ms: 7.446625
+  type: 'test'
+  ...
+# Subtest: cancel stored interrupted work without executing tools
+ok 138 - cancel stored interrupted work without executing tools
+  ---
+  duration_ms: 8.660958
+  type: 'test'
+  ...
+# Subtest: failed delegation preserves the provider's actual error rather than blaming optional tools
+ok 139 - failed delegation preserves the provider's actual error rather than blaming optional tools
+  ---
+  duration_ms: 12.90525
+  type: 'test'
+  ...
+# Subtest: rejects unsafe run identifiers
+ok 140 - rejects unsafe run identifiers
+  ---
+  duration_ms: 0.141292
+  type: 'test'
+  ...
+# Subtest: no-deadline execution keeps the host alive without a progress callback and shutdown releases it
+ok 141 - no-deadline execution keeps the host alive without a progress callback and shutdown releases it
+  ---
+  duration_ms: 336.053625
+  type: 'test'
+  ...
+# Subtest: named root reads and a plain listing are classified as in scope
+ok 142 - named root reads and a plain listing are classified as in scope
+  ---
+  duration_ms: 0.926959
+  type: 'test'
+  ...
+# Subtest: same-named nested or external files are not the named root files
+ok 143 - same-named nested or external files are not the named root files
+  ---
+  duration_ms: 0.354834
+  type: 'test'
+  ...
+# Subtest: unclassified shell commands yield unknown, not a clean scope verdict
+ok 144 - unclassified shell commands yield unknown, not a clean scope verdict
+  ---
+  duration_ms: 0.544917
+  type: 'test'
+  ...
+# Subtest: other tools are surfaced as unclassified evidence
+ok 145 - other tools are surfaced as unclassified evidence
+  ---
+  duration_ms: 0.185959
+  type: 'test'
+  ...
+# Subtest: the absence fixture permits up to two root descriptors
+ok 146 - the absence fixture permits up to two root descriptors
+  ---
+  duration_ms: 0.702375
+  type: 'test'
+  ...
+# Subtest: the absence fixture rejects more than two fallback descriptors
+ok 147 - the absence fixture rejects more than two fallback descriptors
+  ---
+  duration_ms: 0.108625
+  type: 'test'
+  ...
+# Subtest: an empty inspection cannot be counted as a successful scope check
+ok 148 - an empty inspection cannot be counted as a successful scope check
+  ---
+  duration_ms: 0.135541
+  type: 'test'
+  ...
+# (node:62775) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: subagents_list reports declared model/thinking instead of claiming caller inheritance or a resolved model
+ok 149 - subagents_list reports declared model/thinking instead of claiming caller inheritance or a resolved model
+  ---
+  duration_ms: 25.501084
+  type: 'test'
+  ...
+# (node:62776) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: the tool counter outlives the thirty-call presentation window
+ok 150 - the tool counter outlives the thirty-call presentation window
+  ---
+  duration_ms: 171.588583
+  type: 'test'
+  ...
+# Subtest: chain presentation shows the requested task rather than previous-step context
+ok 151 - chain presentation shows the requested task rather than previous-step context
+  ---
+  duration_ms: 16.146292
+  type: 'test'
+  ...
+# Subtest: group inset covers wrapped headings, expanded content and separators in every mode
+ok 152 - group inset covers wrapped headings, expanded content and separators in every mode
+  ---
+  duration_ms: 15.196458
+  type: 'test'
+  ...
+# Subtest: a multiline single task is flattened only in its collapsed caption
+ok 153 - a multiline single task is flattened only in its collapsed caption
+  ---
+  duration_ms: 0.7435
+  type: 'test'
+  ...
+# Subtest: task captions cap normalized Unicode text at 50 characters without changing expanded tasks
+ok 154 - task captions cap normalized Unicode text at 50 characters without changing expanded tasks
+  ---
+  duration_ms: 2.648541
+  type: 'test'
+  ...
+# Subtest: long current/recent activity stays one line per call and failures are not green checks
+ok 155 - long current/recent activity stays one line per call and failures are not green checks
+  ---
+  duration_ms: 0.995334
+  type: 'test'
+  ...
+# Subtest: completed responses retain native Markdown headings and cached content across redraws
+ok 156 - completed responses retain native Markdown headings and cached content across redraws
+  ---
+  duration_ms: 1.443666
+  type: 'test'
+  ...
+# Subtest: generic errors have bounded collapsed previews and expand explicitly
+ok 157 - generic errors have bounded collapsed previews and expand explicitly
+  ---
+  duration_ms: 0.104208
+  type: 'test'
+  ...
+# Subtest: ultra-narrow metrics omit whole readings instead of slicing a cost
+ok 158 - ultra-narrow metrics omit whole readings instead of slicing a cost
+  ---
+  duration_ms: 0.922542
+  type: 'test'
+  ...
+# Subtest: dark collapsed tree prefixes are white without resetting the tool background
+ok 159 - dark collapsed tree prefixes are white without resetting the tool background
+  ---
+  duration_ms: 2.865333
+  type: 'test'
+  ...
+# Subtest: dark expanded tree prefixes are white without resetting the tool background
+ok 160 - dark expanded tree prefixes are white without resetting the tool background
+  ---
+  duration_ms: 1.135417
+  type: 'test'
+  ...
+# Subtest: light collapsed tree prefixes are white without resetting the tool background
+ok 161 - light collapsed tree prefixes are white without resetting the tool background
+  ---
+  duration_ms: 0.722375
+  type: 'test'
+  ...
+# Subtest: light expanded tree prefixes are white without resetting the tool background
+ok 162 - light expanded tree prefixes are white without resetting the tool background
+  ---
+  duration_ms: 0.491875
+  type: 'test'
+  ...
+# (node:62778) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: collapsed single runs name every state rather than requiring an icon legend
+ok 163 - collapsed single runs name every state rather than requiring an icon legend
+  ---
+  duration_ms: 19.526958
+  type: 'test'
+  ...
+# Subtest: a collapsed single run is the approved two-line base
+ok 164 - a collapsed single run is the approved two-line base
+  ---
+  duration_ms: 1.340708
+  type: 'test'
+  ...
+# Subtest: the requested order and tree prefixes are the approved group geometry
+ok 165 - the requested order and tree prefixes are the approved group geometry
+  ---
+  duration_ms: 1.314792
+  type: 'test'
+  ...
+# Subtest: chain and parallel keep their distinct heading and requested order
+ok 166 - chain and parallel keep their distinct heading and requested order
+  ---
+  duration_ms: 0.936666
+  type: 'test'
+  ...
+# Subtest: not-run steps are shown as not run rather than a queue that never moves
+ok 167 - not-run steps are shown as not run rather than a queue that never moves
+  ---
+  duration_ms: 0.725875
+  type: 'test'
+  ...
+# Subtest: the group cost is the sum of the children, never an added charge
+ok 168 - the group cost is the sum of the children, never an added charge
+  ---
+  duration_ms: 0.767083
+  type: 'test'
+  ...
+# Subtest: narrow metrics drop tokens first, then the tool count, and never overflow
+ok 169 - narrow metrics drop tokens first, then the tool count, and never overflow
+  ---
+  duration_ms: 0.687041
+  type: 'test'
+  ...
+# Subtest: real visible columns are respected for wide, combining, and emoji text
+ok 170 - real visible columns are respected for wide, combining, and emoji text
+  ---
+  duration_ms: 20.35175
+  type: 'test'
+  ...
+# Subtest: expanded running shows the current tool and at most three finished calls, newest first
+ok 171 - expanded running shows the current tool and at most three finished calls, newest first
+  ---
+  duration_ms: 1.127
+  type: 'test'
+  ...
+# Subtest: a running run with no tool says it is waiting for the model instead of inventing one
+ok 172 - a running run with no tool says it is waiting for the model instead of inventing one
+  ---
+  duration_ms: 0.733417
+  type: 'test'
+  ...
+# Subtest: a completed expanded run renders its response without run IDs, cwd, or records
+ok 173 - a completed expanded run renders its response without run IDs, cwd, or records
+  ---
+  duration_ms: 3.363084
+  type: 'test'
+  ...
+# Subtest: uncertainty and interruption add compact warnings; a missing tool list does not
+ok 174 - uncertainty and interruption add compact warnings; a missing tool list does not
+  ---
+  duration_ms: 0.608416
+  type: 'test'
+  ...
+# Subtest: the running icon uses the braille clock while active and a static frame otherwise
+ok 175 - the running icon uses the braille clock while active and a static frame otherwise
+  ---
+  duration_ms: 0.596541
+  type: 'test'
+  ...
+# Subtest: rendering a tool result creates no timers
+ok 176 - rendering a tool result creates no timers
+  ---
+  duration_ms: 167.262958
+  type: 'test'
+  ...
+# Subtest: normal tool errors with generic details retain their message instead of crashing the renderer
+ok 177 - normal tool errors with generic details retain their message instead of crashing the renderer
+  ---
+  duration_ms: 7.298167
+  type: 'test'
+  ...
+# Subtest: previews remove terminal controls and remain bounded
+ok 178 - previews remove terminal controls and remain bounded
+  ---
+  duration_ms: 0.0765
+  type: 'test'
+  ...
+# Subtest: clipped lines keep the tool-result background that truncateToWidth clears
+ok 179 - clipped lines keep the tool-result background that truncateToWidth clears
+  ---
+  duration_ms: 0.387125
+  type: 'test'
+  ...
+# Subtest: group rows composed inside a native Box stay in width and keep the background, in both themes
+ok 180 - group rows composed inside a native Box stay in width and keep the background, in both themes
+  ---
+  duration_ms: 5.573792
+  type: 'test'
+  ...
+# Subtest: cached but undelivered results still report their spend
+ok 181 - cached but undelivered results still report their spend
+  ---
+  duration_ms: 0.924583
+  type: 'test'
+  ...
+# Subtest: retrieval does not count delivered usage twice
+ok 182 - retrieval does not count delivered usage twice
+  ---
+  duration_ms: 0.198167
+  type: 'test'
+  ...
+# Subtest: resume reports only additional model usage on the active branch
+ok 183 - resume reports only additional model usage on the active branch
+  ---
+  duration_ms: 0.084625
+  type: 'test'
+  ...
+# (node:62780) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: worktree isolation gives each step its own checkout and leaves the caller's repository alone
+ok 184 - worktree isolation gives each step its own checkout and leaves the caller's repository alone
+  ---
+  duration_ms: 533.214375
+  type: 'test'
+  ...
+# Subtest: worktree isolation reports a clear error outside a git repository
+ok 185 - worktree isolation reports a clear error outside a git repository
+  ---
+  duration_ms: 44.94275
+  type: 'test'
+  ...
+# Subtest: worktree isolation runs the steps concurrently rather than one after another
+ok 186 - worktree isolation runs the steps concurrently rather than one after another
+  ---
+  duration_ms: 344.219375
+  type: 'test'
+  ...
+# Subtest: worktree parsing rejects shapes it cannot honour
+ok 187 - worktree parsing rejects shapes it cannot honour
+  ---
+  duration_ms: 3.6275
+  type: 'test'
+  ...
+1..187
+# tests 187
+# suites 0
+# pass 187
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 60996.460084

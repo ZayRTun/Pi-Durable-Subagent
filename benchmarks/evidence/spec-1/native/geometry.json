@@ -1,0 +1,1424 @@
+{
+  "passed": 80,
+  "total": 80,
+  "aggregatedCheckCounts": {
+    "groupHeadings": 136,
+    "agentHeaders": 576,
+    "metrics": 576,
+    "bodyLabels": 664,
+    "expandedContentLines": 824,
+    "markdownContinuationLines": 164,
+    "defaultBackgroundRows": 7604,
+    "baselineComposerSpacing": 48
+  },
+  "results": [
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-chain-120-dark-fullscreen",
+      "scenario": "chain",
+      "width": 120,
+      "theme": "dark",
+      "mode": "fullscreen",
+      "passed": true,
+      "checks": {
+        "groupHeadings": 2,
+        "agentHeaders": 8,
+        "metrics": 8,
+        "bodyLabels": 12,
+        "expandedContentLines": 18,
+        "markdownContinuationLines": 5,
+        "defaultBackgroundRows": 109
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-chain-120-dark-regular",
+      "scenario": "chain",
+      "width": 120,
+      "theme": "dark",
+      "mode": "regular",
+      "passed": true,
+      "checks": {
+        "groupHeadings": 2,
+        "agentHeaders": 8,
+        "metrics": 8,
+        "bodyLabels": 12,
+        "expandedContentLines": 18,
+        "markdownContinuationLines": 5,
+        "defaultBackgroundRows": 77
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-chain-120-light-fullscreen",
+      "scenario": "chain",
+      "width": 120,
+      "theme": "light",
+      "mode": "fullscreen",
+      "passed": true,
+      "checks": {
+        "groupHeadings": 2,
+        "agentHeaders": 8,
+        "metrics": 8,
+        "bodyLabels": 12,
+        "expandedContentLines": 18,
+        "markdownContinuationLines": 5,
+        "defaultBackgroundRows": 109
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-chain-120-light-regular",
+      "scenario": "chain",
+      "width": 120,
+      "theme": "light",
+      "mode": "regular",
+      "passed": true,
+      "checks": {
+        "groupHeadings": 2,
+        "agentHeaders": 8,
+        "metrics": 8,
+        "bodyLabels": 12,
+        "expandedContentLines": 18,
+        "markdownContinuationLines": 5,
+        "defaultBackgroundRows": 77
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-chain-80-dark-fullscreen",
+      "scenario": "chain",
+      "width": 80,
+      "theme": "dark",
+      "mode": "fullscreen",
+      "passed": true,
+      "checks": {
+        "groupHeadings": 2,
+        "agentHeaders": 8,
+        "metrics": 8,
+        "bodyLabels": 11,
+        "expandedContentLines": 26,
+        "markdownContinuationLines": 7,
+        "defaultBackgroundRows": 114
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-chain-80-dark-regular",
+      "scenario": "chain",
+      "width": 80,
+      "theme": "dark",
+      "mode": "regular",
+      "passed": true,
+      "checks": {
+        "groupHeadings": 2,
+        "agentHeaders": 8,
+        "metrics": 8,
+        "bodyLabels": 11,
+        "expandedContentLines": 26,
+        "markdownContinuationLines": 7,
+        "defaultBackgroundRows": 80
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-chain-80-light-fullscreen",
+      "scenario": "chain",
+      "width": 80,
+      "theme": "light",
+      "mode": "fullscreen",
+      "passed": true,
+      "checks": {
+        "groupHeadings": 2,
+        "agentHeaders": 8,
+        "metrics": 8,
+        "bodyLabels": 11,
+        "expandedContentLines": 26,
+        "markdownContinuationLines": 7,
+        "defaultBackgroundRows": 114
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-chain-80-light-regular",
+      "scenario": "chain",
+      "width": 80,
+      "theme": "light",
+      "mode": "regular",
+      "passed": true,
+      "checks": {
+        "groupHeadings": 2,
+        "agentHeaders": 8,
+        "metrics": 8,
+        "bodyLabels": 11,
+        "expandedContentLines": 26,
+        "markdownContinuationLines": 7,
+        "defaultBackgroundRows": 80
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-ordered-120-dark-fullscreen-corrected-1791252862476871000",
+      "scenario": "ordered",
+      "width": 120,
+      "theme": "dark",
+      "mode": "fullscreen",
+      "passed": true,
+      "checks": {
+        "groupHeadings": 2,
+        "agentHeaders": 8,
+        "metrics": 8,
+        "bodyLabels": 12,
+        "expandedContentLines": 18,
+        "markdownContinuationLines": 5,
+        "defaultBackgroundRows": 109
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-ordered-120-dark-regular",
+      "scenario": "ordered",
+      "width": 120,
+      "theme": "dark",
+      "mode": "regular",
+      "passed": true,
+      "checks": {
+        "groupHeadings": 2,
+        "agentHeaders": 8,
+        "metrics": 8,
+        "bodyLabels": 12,
+        "expandedContentLines": 18,
+        "markdownContinuationLines": 5,
+        "defaultBackgroundRows": 77
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-ordered-120-light-fullscreen-corrected-1791252875933591000",
+      "scenario": "ordered",
+      "width": 120,
+      "theme": "light",
+      "mode": "fullscreen",
+      "passed": true,
+      "checks": {
+        "groupHeadings": 2,
+        "agentHeaders": 8,
+        "metrics": 8,
+        "bodyLabels": 12,
+        "expandedContentLines": 18,
+        "markdownContinuationLines": 5,
+        "defaultBackgroundRows": 109
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-ordered-120-light-regular",
+      "scenario": "ordered",
+      "width": 120,
+      "theme": "light",
+      "mode": "regular",
+      "passed": true,
+      "checks": {
+        "groupHeadings": 2,
+        "agentHeaders": 8,
+        "metrics": 8,
+        "bodyLabels": 12,
+        "expandedContentLines": 18,
+        "markdownContinuationLines": 5,
+        "defaultBackgroundRows": 77
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-ordered-80-dark-fullscreen-corrected-1791252862475499000",
+      "scenario": "ordered",
+      "width": 80,
+      "theme": "dark",
+      "mode": "fullscreen",
+      "passed": true,
+      "checks": {
+        "groupHeadings": 2,
+        "agentHeaders": 8,
+        "metrics": 8,
+        "bodyLabels": 11,
+        "expandedContentLines": 26,
+        "markdownContinuationLines": 7,
+        "defaultBackgroundRows": 114
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-ordered-80-dark-regular",
+      "scenario": "ordered",
+      "width": 80,
+      "theme": "dark",
+      "mode": "regular",
+      "passed": true,
+      "checks": {
+        "groupHeadings": 2,
+        "agentHeaders": 8,
+        "metrics": 8,
+        "bodyLabels": 11,
+        "expandedContentLines": 26,
+        "markdownContinuationLines": 7,
+        "defaultBackgroundRows": 80
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-ordered-80-light-fullscreen-corrected-1791252862475596000",
+      "scenario": "ordered",
+      "width": 80,
+      "theme": "light",
+      "mode": "fullscreen",
+      "passed": true,
+      "checks": {
+        "groupHeadings": 2,
+        "agentHeaders": 8,
+        "metrics": 8,
+        "bodyLabels": 11,
+        "expandedContentLines": 26,
+        "markdownContinuationLines": 7,
+        "defaultBackgroundRows": 114
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-ordered-80-light-regular",
+      "scenario": "ordered",
+      "width": 80,
+      "theme": "light",
+      "mode": "regular",
+      "passed": true,
+      "checks": {
+        "groupHeadings": 2,
+        "agentHeaders": 8,
+        "metrics": 8,
+        "bodyLabels": 11,
+        "expandedContentLines": 26,
+        "markdownContinuationLines": 7,
+        "defaultBackgroundRows": 80
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-parallel-120-dark-fullscreen",
+      "scenario": "parallel",
+      "width": 120,
+      "theme": "dark",
+      "mode": "fullscreen",
+      "passed": true,
+      "checks": {
+        "groupHeadings": 2,
+        "agentHeaders": 8,
+        "metrics": 8,
+        "bodyLabels": 18,
+        "expandedContentLines": 20,
+        "markdownContinuationLines": 5,
+        "defaultBackgroundRows": 127
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-parallel-120-dark-regular",
+      "scenario": "parallel",
+      "width": 120,
+      "theme": "dark",
+      "mode": "regular",
+      "passed": true,
+      "checks": {
+        "groupHeadings": 2,
+        "agentHeaders": 8,
+        "metrics": 8,
+        "bodyLabels": 18,
+        "expandedContentLines": 20,
+        "markdownContinuationLines": 5,
+        "defaultBackgroundRows": 95
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-parallel-120-light-fullscreen",
+      "scenario": "parallel",
+      "width": 120,
+      "theme": "light",
+      "mode": "fullscreen",
+      "passed": true,
+      "checks": {
+        "groupHeadings": 2,
+        "agentHeaders": 8,
+        "metrics": 8,
+        "bodyLabels": 18,
+        "expandedContentLines": 20,
+        "markdownContinuationLines": 5,
+        "defaultBackgroundRows": 127
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-parallel-120-light-regular",
+      "scenario": "parallel",
+      "width": 120,
+      "theme": "light",
+      "mode": "regular",
+      "passed": true,
+      "checks": {
+        "groupHeadings": 2,
+        "agentHeaders": 8,
+        "metrics": 8,
+        "bodyLabels": 18,
+        "expandedContentLines": 20,
+        "markdownContinuationLines": 5,
+        "defaultBackgroundRows": 95
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-parallel-80-dark-fullscreen",
+      "scenario": "parallel",
+      "width": 80,
+      "theme": "dark",
+      "mode": "fullscreen",
+      "passed": true,
+      "checks": {
+        "groupHeadings": 2,
+        "agentHeaders": 8,
+        "metrics": 8,
+        "bodyLabels": 17,
+        "expandedContentLines": 32,
+        "markdownContinuationLines": 7,
+        "defaultBackgroundRows": 134
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-parallel-80-dark-regular",
+      "scenario": "parallel",
+      "width": 80,
+      "theme": "dark",
+      "mode": "regular",
+      "passed": true,
+      "checks": {
+        "groupHeadings": 2,
+        "agentHeaders": 8,
+        "metrics": 8,
+        "bodyLabels": 17,
+        "expandedContentLines": 32,
+        "markdownContinuationLines": 7,
+        "defaultBackgroundRows": 100
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-parallel-80-light-fullscreen",
+      "scenario": "parallel",
+      "width": 80,
+      "theme": "light",
+      "mode": "fullscreen",
+      "passed": true,
+      "checks": {
+        "groupHeadings": 2,
+        "agentHeaders": 8,
+        "metrics": 8,
+        "bodyLabels": 17,
+        "expandedContentLines": 32,
+        "markdownContinuationLines": 7,
+        "defaultBackgroundRows": 134
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-parallel-80-light-regular-observer2-1791253016299556000",
+      "scenario": "parallel",
+      "width": 80,
+      "theme": "light",
+      "mode": "regular",
+      "passed": true,
+      "checks": {
+        "groupHeadings": 2,
+        "agentHeaders": 8,
+        "metrics": 8,
+        "bodyLabels": 17,
+        "expandedContentLines": 32,
+        "markdownContinuationLines": 7,
+        "defaultBackgroundRows": 100
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-single-120-dark-fullscreen",
+      "scenario": "single",
+      "width": 120,
+      "theme": "dark",
+      "mode": "fullscreen",
+      "passed": true,
+      "checks": {
+        "agentHeaders": 3,
+        "metrics": 3,
+        "bodyLabels": 7,
+        "expandedContentLines": 8,
+        "markdownContinuationLines": 2,
+        "defaultBackgroundRows": 15
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-single-120-dark-regular",
+      "scenario": "single",
+      "width": 120,
+      "theme": "dark",
+      "mode": "regular",
+      "passed": true,
+      "checks": {
+        "agentHeaders": 3,
+        "metrics": 3,
+        "bodyLabels": 7,
+        "expandedContentLines": 8,
+        "markdownContinuationLines": 2,
+        "defaultBackgroundRows": 15
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-single-120-light-fullscreen",
+      "scenario": "single",
+      "width": 120,
+      "theme": "light",
+      "mode": "fullscreen",
+      "passed": true,
+      "checks": {
+        "agentHeaders": 3,
+        "metrics": 3,
+        "bodyLabels": 7,
+        "expandedContentLines": 8,
+        "markdownContinuationLines": 2,
+        "defaultBackgroundRows": 15
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-single-120-light-regular",
+      "scenario": "single",
+      "width": 120,
+      "theme": "light",
+      "mode": "regular",
+      "passed": true,
+      "checks": {
+        "agentHeaders": 3,
+        "metrics": 3,
+        "bodyLabels": 7,
+        "expandedContentLines": 8,
+        "markdownContinuationLines": 2,
+        "defaultBackgroundRows": 15
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-single-80-dark-fullscreen-corrected-1791252862475352000",
+      "scenario": "single",
+      "width": 80,
+      "theme": "dark",
+      "mode": "fullscreen",
+      "passed": true,
+      "checks": {
+        "agentHeaders": 3,
+        "metrics": 3,
+        "bodyLabels": 7,
+        "expandedContentLines": 10,
+        "markdownContinuationLines": 3,
+        "defaultBackgroundRows": 15
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-single-80-dark-regular",
+      "scenario": "single",
+      "width": 80,
+      "theme": "dark",
+      "mode": "regular",
+      "passed": true,
+      "checks": {
+        "agentHeaders": 3,
+        "metrics": 3,
+        "bodyLabels": 7,
+        "expandedContentLines": 10,
+        "markdownContinuationLines": 3,
+        "defaultBackgroundRows": 15
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-single-80-light-fullscreen",
+      "scenario": "single",
+      "width": 80,
+      "theme": "light",
+      "mode": "fullscreen",
+      "passed": true,
+      "checks": {
+        "agentHeaders": 3,
+        "metrics": 3,
+        "bodyLabels": 7,
+        "expandedContentLines": 10,
+        "markdownContinuationLines": 3,
+        "defaultBackgroundRows": 15
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-single-80-light-regular",
+      "scenario": "single",
+      "width": 80,
+      "theme": "light",
+      "mode": "regular",
+      "passed": true,
+      "checks": {
+        "agentHeaders": 3,
+        "metrics": 3,
+        "bodyLabels": 7,
+        "expandedContentLines": 10,
+        "markdownContinuationLines": 3,
+        "defaultBackgroundRows": 15
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-supervised-120-dark-fullscreen-corrected-1791252897533814000",
+      "scenario": "supervised",
+      "width": 120,
+      "theme": "dark",
+      "mode": "fullscreen",
+      "passed": true,
+      "checks": {
+        "agentHeaders": 4,
+        "metrics": 4,
+        "bodyLabels": 5,
+        "expandedContentLines": 2,
+        "defaultBackgroundRows": 52,
+        "baselineComposerSpacing": 1
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-supervised-120-dark-regular-corrected-1791252895524396000",
+      "scenario": "supervised",
+      "width": 120,
+      "theme": "dark",
+      "mode": "regular",
+      "passed": true,
+      "checks": {
+        "agentHeaders": 4,
+        "metrics": 4,
+        "bodyLabels": 5,
+        "expandedContentLines": 2,
+        "defaultBackgroundRows": 24,
+        "baselineComposerSpacing": 1
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-supervised-120-light-fullscreen",
+      "scenario": "supervised",
+      "width": 120,
+      "theme": "light",
+      "mode": "fullscreen",
+      "passed": true,
+      "checks": {
+        "agentHeaders": 4,
+        "metrics": 4,
+        "bodyLabels": 5,
+        "expandedContentLines": 2,
+        "defaultBackgroundRows": 52,
+        "baselineComposerSpacing": 1
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-supervised-120-light-regular-corrected-1791252903621890000",
+      "scenario": "supervised",
+      "width": 120,
+      "theme": "light",
+      "mode": "regular",
+      "passed": true,
+      "checks": {
+        "agentHeaders": 4,
+        "metrics": 4,
+        "bodyLabels": 5,
+        "expandedContentLines": 2,
+        "defaultBackgroundRows": 24,
+        "baselineComposerSpacing": 1
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-supervised-80-dark-fullscreen-corrected-1791252884159197000",
+      "scenario": "supervised",
+      "width": 80,
+      "theme": "dark",
+      "mode": "fullscreen",
+      "passed": true,
+      "checks": {
+        "agentHeaders": 4,
+        "metrics": 4,
+        "bodyLabels": 5,
+        "expandedContentLines": 4,
+        "defaultBackgroundRows": 64,
+        "baselineComposerSpacing": 1
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-supervised-80-dark-regular-corrected-1791252884137923000",
+      "scenario": "supervised",
+      "width": 80,
+      "theme": "dark",
+      "mode": "regular",
+      "passed": true,
+      "checks": {
+        "agentHeaders": 4,
+        "metrics": 4,
+        "bodyLabels": 5,
+        "expandedContentLines": 4,
+        "defaultBackgroundRows": 24,
+        "baselineComposerSpacing": 1
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-supervised-80-light-fullscreen-corrected-1791252895151609000",
+      "scenario": "supervised",
+      "width": 80,
+      "theme": "light",
+      "mode": "fullscreen",
+      "passed": true,
+      "checks": {
+        "agentHeaders": 4,
+        "metrics": 4,
+        "bodyLabels": 5,
+        "expandedContentLines": 4,
+        "defaultBackgroundRows": 64,
+        "baselineComposerSpacing": 1
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-supervised-80-light-regular-corrected-1791252892584418000",
+      "scenario": "supervised",
+      "width": 80,
+      "theme": "light",
+      "mode": "regular",
+      "passed": true,
+      "checks": {
+        "agentHeaders": 4,
+        "metrics": 4,
+        "bodyLabels": 5,
+        "expandedContentLines": 4,
+        "defaultBackgroundRows": 24,
+        "baselineComposerSpacing": 1
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-supervised-completion-120-dark-fullscreen",
+      "scenario": "supervised-completion",
+      "width": 120,
+      "theme": "dark",
+      "mode": "fullscreen",
+      "passed": true,
+      "checks": {
+        "agentHeaders": 4,
+        "metrics": 4,
+        "bodyLabels": 5,
+        "expandedContentLines": 2,
+        "defaultBackgroundRows": 59,
+        "baselineComposerSpacing": 1
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-supervised-completion-120-dark-regular",
+      "scenario": "supervised-completion",
+      "width": 120,
+      "theme": "dark",
+      "mode": "regular",
+      "passed": true,
+      "checks": {
+        "agentHeaders": 4,
+        "metrics": 4,
+        "bodyLabels": 5,
+        "expandedContentLines": 2,
+        "defaultBackgroundRows": 31,
+        "baselineComposerSpacing": 1
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-supervised-completion-120-light-fullscreen",
+      "scenario": "supervised-completion",
+      "width": 120,
+      "theme": "light",
+      "mode": "fullscreen",
+      "passed": true,
+      "checks": {
+        "agentHeaders": 4,
+        "metrics": 4,
+        "bodyLabels": 5,
+        "expandedContentLines": 2,
+        "defaultBackgroundRows": 59,
+        "baselineComposerSpacing": 1
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-supervised-completion-120-light-regular",
+      "scenario": "supervised-completion",
+      "width": 120,
+      "theme": "light",
+      "mode": "regular",
+      "passed": true,
+      "checks": {
+        "agentHeaders": 4,
+        "metrics": 4,
+        "bodyLabels": 5,
+        "expandedContentLines": 2,
+        "defaultBackgroundRows": 31,
+        "baselineComposerSpacing": 1
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-supervised-completion-80-dark-fullscreen",
+      "scenario": "supervised-completion",
+      "width": 80,
+      "theme": "dark",
+      "mode": "fullscreen",
+      "passed": true,
+      "checks": {
+        "agentHeaders": 4,
+        "metrics": 4,
+        "bodyLabels": 5,
+        "expandedContentLines": 4,
+        "defaultBackgroundRows": 71,
+        "baselineComposerSpacing": 1
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-supervised-completion-80-dark-regular",
+      "scenario": "supervised-completion",
+      "width": 80,
+      "theme": "dark",
+      "mode": "regular",
+      "passed": true,
+      "checks": {
+        "agentHeaders": 4,
+        "metrics": 4,
+        "bodyLabels": 5,
+        "expandedContentLines": 4,
+        "defaultBackgroundRows": 31,
+        "baselineComposerSpacing": 1
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-supervised-completion-80-light-fullscreen",
+      "scenario": "supervised-completion",
+      "width": 80,
+      "theme": "light",
+      "mode": "fullscreen",
+      "passed": true,
+      "checks": {
+        "agentHeaders": 4,
+        "metrics": 4,
+        "bodyLabels": 5,
+        "expandedContentLines": 4,
+        "defaultBackgroundRows": 71,
+        "baselineComposerSpacing": 1
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-supervised-completion-80-light-regular",
+      "scenario": "supervised-completion",
+      "width": 80,
+      "theme": "light",
+      "mode": "regular",
+      "passed": true,
+      "checks": {
+        "agentHeaders": 4,
+        "metrics": 4,
+        "bodyLabels": 5,
+        "expandedContentLines": 4,
+        "defaultBackgroundRows": 31,
+        "baselineComposerSpacing": 1
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-supervised-group-chain-pause-120-dark-fullscreen",
+      "scenario": "supervised-group-chain-pause",
+      "width": 120,
+      "theme": "dark",
+      "mode": "fullscreen",
+      "passed": true,
+      "checks": {
+        "groupHeadings": 4,
+        "agentHeaders": 12,
+        "metrics": 12,
+        "bodyLabels": 5,
+        "expandedContentLines": 2,
+        "defaultBackgroundRows": 228,
+        "baselineComposerSpacing": 1
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-supervised-group-chain-pause-120-dark-regular",
+      "scenario": "supervised-group-chain-pause",
+      "width": 120,
+      "theme": "dark",
+      "mode": "regular",
+      "passed": true,
+      "checks": {
+        "groupHeadings": 4,
+        "agentHeaders": 12,
+        "metrics": 12,
+        "bodyLabels": 5,
+        "expandedContentLines": 2,
+        "defaultBackgroundRows": 144,
+        "baselineComposerSpacing": 1
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-supervised-group-chain-pause-120-light-fullscreen",
+      "scenario": "supervised-group-chain-pause",
+      "width": 120,
+      "theme": "light",
+      "mode": "fullscreen",
+      "passed": true,
+      "checks": {
+        "groupHeadings": 4,
+        "agentHeaders": 12,
+        "metrics": 12,
+        "bodyLabels": 5,
+        "expandedContentLines": 2,
+        "defaultBackgroundRows": 228,
+        "baselineComposerSpacing": 1
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-supervised-group-chain-pause-120-light-regular",
+      "scenario": "supervised-group-chain-pause",
+      "width": 120,
+      "theme": "light",
+      "mode": "regular",
+      "passed": true,
+      "checks": {
+        "groupHeadings": 4,
+        "agentHeaders": 12,
+        "metrics": 12,
+        "bodyLabels": 5,
+        "expandedContentLines": 2,
+        "defaultBackgroundRows": 144,
+        "baselineComposerSpacing": 1
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-supervised-group-chain-pause-80-dark-fullscreen",
+      "scenario": "supervised-group-chain-pause",
+      "width": 80,
+      "theme": "dark",
+      "mode": "fullscreen",
+      "passed": true,
+      "checks": {
+        "groupHeadings": 4,
+        "agentHeaders": 12,
+        "metrics": 12,
+        "bodyLabels": 5,
+        "expandedContentLines": 6,
+        "defaultBackgroundRows": 238,
+        "baselineComposerSpacing": 1
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-supervised-group-chain-pause-80-dark-regular",
+      "scenario": "supervised-group-chain-pause",
+      "width": 80,
+      "theme": "dark",
+      "mode": "regular",
+      "passed": true,
+      "checks": {
+        "groupHeadings": 4,
+        "agentHeaders": 12,
+        "metrics": 12,
+        "bodyLabels": 5,
+        "expandedContentLines": 6,
+        "defaultBackgroundRows": 149,
+        "baselineComposerSpacing": 1
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-supervised-group-chain-pause-80-light-fullscreen",
+      "scenario": "supervised-group-chain-pause",
+      "width": 80,
+      "theme": "light",
+      "mode": "fullscreen",
+      "passed": true,
+      "checks": {
+        "groupHeadings": 4,
+        "agentHeaders": 12,
+        "metrics": 12,
+        "bodyLabels": 5,
+        "expandedContentLines": 6,
+        "defaultBackgroundRows": 238,
+        "baselineComposerSpacing": 1
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-supervised-group-chain-pause-80-light-regular",
+      "scenario": "supervised-group-chain-pause",
+      "width": 80,
+      "theme": "light",
+      "mode": "regular",
+      "passed": true,
+      "checks": {
+        "groupHeadings": 4,
+        "agentHeaders": 12,
+        "metrics": 12,
+        "bodyLabels": 5,
+        "expandedContentLines": 6,
+        "defaultBackgroundRows": 149,
+        "baselineComposerSpacing": 1
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-supervised-group-ordered-pause-120-dark-fullscreen",
+      "scenario": "supervised-group-ordered-pause",
+      "width": 120,
+      "theme": "dark",
+      "mode": "fullscreen",
+      "passed": true,
+      "checks": {
+        "groupHeadings": 4,
+        "agentHeaders": 12,
+        "metrics": 12,
+        "bodyLabels": 5,
+        "expandedContentLines": 2,
+        "defaultBackgroundRows": 184,
+        "baselineComposerSpacing": 1
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-supervised-group-ordered-pause-120-dark-regular",
+      "scenario": "supervised-group-ordered-pause",
+      "width": 120,
+      "theme": "dark",
+      "mode": "regular",
+      "passed": true,
+      "checks": {
+        "groupHeadings": 4,
+        "agentHeaders": 12,
+        "metrics": 12,
+        "bodyLabels": 5,
+        "expandedContentLines": 2,
+        "defaultBackgroundRows": 100,
+        "baselineComposerSpacing": 1
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-supervised-group-ordered-pause-120-light-fullscreen",
+      "scenario": "supervised-group-ordered-pause",
+      "width": 120,
+      "theme": "light",
+      "mode": "fullscreen",
+      "passed": true,
+      "checks": {
+        "groupHeadings": 4,
+        "agentHeaders": 12,
+        "metrics": 12,
+        "bodyLabels": 5,
+        "expandedContentLines": 2,
+        "defaultBackgroundRows": 184,
+        "baselineComposerSpacing": 1
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-supervised-group-ordered-pause-120-light-regular",
+      "scenario": "supervised-group-ordered-pause",
+      "width": 120,
+      "theme": "light",
+      "mode": "regular",
+      "passed": true,
+      "checks": {
+        "groupHeadings": 4,
+        "agentHeaders": 12,
+        "metrics": 12,
+        "bodyLabels": 5,
+        "expandedContentLines": 2,
+        "defaultBackgroundRows": 100,
+        "baselineComposerSpacing": 1
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-supervised-group-ordered-pause-80-dark-fullscreen",
+      "scenario": "supervised-group-ordered-pause",
+      "width": 80,
+      "theme": "dark",
+      "mode": "fullscreen",
+      "passed": true,
+      "checks": {
+        "groupHeadings": 4,
+        "agentHeaders": 12,
+        "metrics": 12,
+        "bodyLabels": 5,
+        "expandedContentLines": 6,
+        "defaultBackgroundRows": 191,
+        "baselineComposerSpacing": 1
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-supervised-group-ordered-pause-80-dark-regular",
+      "scenario": "supervised-group-ordered-pause",
+      "width": 80,
+      "theme": "dark",
+      "mode": "regular",
+      "passed": true,
+      "checks": {
+        "groupHeadings": 4,
+        "agentHeaders": 12,
+        "metrics": 12,
+        "bodyLabels": 5,
+        "expandedContentLines": 6,
+        "defaultBackgroundRows": 102,
+        "baselineComposerSpacing": 1
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-supervised-group-ordered-pause-80-light-fullscreen",
+      "scenario": "supervised-group-ordered-pause",
+      "width": 80,
+      "theme": "light",
+      "mode": "fullscreen",
+      "passed": true,
+      "checks": {
+        "groupHeadings": 4,
+        "agentHeaders": 12,
+        "metrics": 12,
+        "bodyLabels": 5,
+        "expandedContentLines": 6,
+        "defaultBackgroundRows": 191,
+        "baselineComposerSpacing": 1
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-supervised-group-ordered-pause-80-light-regular",
+      "scenario": "supervised-group-ordered-pause",
+      "width": 80,
+      "theme": "light",
+      "mode": "regular",
+      "passed": true,
+      "checks": {
+        "groupHeadings": 4,
+        "agentHeaders": 12,
+        "metrics": 12,
+        "bodyLabels": 5,
+        "expandedContentLines": 6,
+        "defaultBackgroundRows": 102,
+        "baselineComposerSpacing": 1
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-supervised-group-parallel-pause-120-dark-fullscreen",
+      "scenario": "supervised-group-parallel-pause",
+      "width": 120,
+      "theme": "dark",
+      "mode": "fullscreen",
+      "passed": true,
+      "checks": {
+        "groupHeadings": 3,
+        "agentHeaders": 9,
+        "metrics": 9,
+        "bodyLabels": 11,
+        "expandedContentLines": 4,
+        "defaultBackgroundRows": 192,
+        "baselineComposerSpacing": 1
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-supervised-group-parallel-pause-120-dark-regular",
+      "scenario": "supervised-group-parallel-pause",
+      "width": 120,
+      "theme": "dark",
+      "mode": "regular",
+      "passed": true,
+      "checks": {
+        "groupHeadings": 3,
+        "agentHeaders": 9,
+        "metrics": 9,
+        "bodyLabels": 11,
+        "expandedContentLines": 4,
+        "defaultBackgroundRows": 113,
+        "baselineComposerSpacing": 1
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-supervised-group-parallel-pause-120-light-fullscreen",
+      "scenario": "supervised-group-parallel-pause",
+      "width": 120,
+      "theme": "light",
+      "mode": "fullscreen",
+      "passed": true,
+      "checks": {
+        "groupHeadings": 3,
+        "agentHeaders": 9,
+        "metrics": 9,
+        "bodyLabels": 11,
+        "expandedContentLines": 4,
+        "defaultBackgroundRows": 192,
+        "baselineComposerSpacing": 1
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-supervised-group-parallel-pause-120-light-regular",
+      "scenario": "supervised-group-parallel-pause",
+      "width": 120,
+      "theme": "light",
+      "mode": "regular",
+      "passed": true,
+      "checks": {
+        "groupHeadings": 3,
+        "agentHeaders": 9,
+        "metrics": 9,
+        "bodyLabels": 11,
+        "expandedContentLines": 4,
+        "defaultBackgroundRows": 113,
+        "baselineComposerSpacing": 1
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-supervised-group-parallel-pause-80-dark-fullscreen",
+      "scenario": "supervised-group-parallel-pause",
+      "width": 80,
+      "theme": "dark",
+      "mode": "fullscreen",
+      "passed": true,
+      "checks": {
+        "groupHeadings": 3,
+        "agentHeaders": 9,
+        "metrics": 9,
+        "expandedContentLines": 10,
+        "bodyLabels": 10,
+        "defaultBackgroundRows": 196,
+        "baselineComposerSpacing": 1
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-supervised-group-parallel-pause-80-dark-regular",
+      "scenario": "supervised-group-parallel-pause",
+      "width": 80,
+      "theme": "dark",
+      "mode": "regular",
+      "passed": true,
+      "checks": {
+        "groupHeadings": 3,
+        "agentHeaders": 9,
+        "metrics": 9,
+        "expandedContentLines": 10,
+        "bodyLabels": 10,
+        "defaultBackgroundRows": 114,
+        "baselineComposerSpacing": 1
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-supervised-group-parallel-pause-80-light-fullscreen",
+      "scenario": "supervised-group-parallel-pause",
+      "width": 80,
+      "theme": "light",
+      "mode": "fullscreen",
+      "passed": true,
+      "checks": {
+        "groupHeadings": 3,
+        "agentHeaders": 9,
+        "metrics": 9,
+        "expandedContentLines": 10,
+        "bodyLabels": 10,
+        "defaultBackgroundRows": 196,
+        "baselineComposerSpacing": 1
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-supervised-group-parallel-pause-80-light-regular",
+      "scenario": "supervised-group-parallel-pause",
+      "width": 80,
+      "theme": "light",
+      "mode": "regular",
+      "passed": true,
+      "checks": {
+        "groupHeadings": 3,
+        "agentHeaders": 9,
+        "metrics": 9,
+        "expandedContentLines": 10,
+        "bodyLabels": 10,
+        "defaultBackgroundRows": 114,
+        "baselineComposerSpacing": 1
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-supervised-pause-120-dark-fullscreen",
+      "scenario": "supervised-pause",
+      "width": 120,
+      "theme": "dark",
+      "mode": "fullscreen",
+      "passed": true,
+      "checks": {
+        "agentHeaders": 4,
+        "metrics": 4,
+        "bodyLabels": 5,
+        "expandedContentLines": 2,
+        "defaultBackgroundRows": 63,
+        "baselineComposerSpacing": 1
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-supervised-pause-120-dark-regular-observer2-1791253016304779000",
+      "scenario": "supervised-pause",
+      "width": 120,
+      "theme": "dark",
+      "mode": "regular",
+      "passed": true,
+      "checks": {
+        "agentHeaders": 4,
+        "metrics": 4,
+        "bodyLabels": 5,
+        "expandedContentLines": 2,
+        "defaultBackgroundRows": 41,
+        "baselineComposerSpacing": 1
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-supervised-pause-120-light-fullscreen",
+      "scenario": "supervised-pause",
+      "width": 120,
+      "theme": "light",
+      "mode": "fullscreen",
+      "passed": true,
+      "checks": {
+        "agentHeaders": 4,
+        "metrics": 4,
+        "bodyLabels": 5,
+        "expandedContentLines": 2,
+        "defaultBackgroundRows": 63,
+        "baselineComposerSpacing": 1
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-supervised-pause-120-light-regular-observer2-1791253029836681000",
+      "scenario": "supervised-pause",
+      "width": 120,
+      "theme": "light",
+      "mode": "regular",
+      "passed": true,
+      "checks": {
+        "agentHeaders": 4,
+        "metrics": 4,
+        "bodyLabels": 5,
+        "expandedContentLines": 2,
+        "defaultBackgroundRows": 41,
+        "baselineComposerSpacing": 1
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-supervised-pause-80-dark-fullscreen",
+      "scenario": "supervised-pause",
+      "width": 80,
+      "theme": "dark",
+      "mode": "fullscreen",
+      "passed": true,
+      "checks": {
+        "agentHeaders": 4,
+        "metrics": 4,
+        "bodyLabels": 5,
+        "expandedContentLines": 4,
+        "defaultBackgroundRows": 75,
+        "baselineComposerSpacing": 1
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-supervised-pause-80-dark-regular-observer2-1791253016299859000",
+      "scenario": "supervised-pause",
+      "width": 80,
+      "theme": "dark",
+      "mode": "regular",
+      "passed": true,
+      "checks": {
+        "agentHeaders": 4,
+        "metrics": 4,
+        "bodyLabels": 5,
+        "expandedContentLines": 4,
+        "defaultBackgroundRows": 40,
+        "baselineComposerSpacing": 1
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-supervised-pause-80-light-fullscreen",
+      "scenario": "supervised-pause",
+      "width": 80,
+      "theme": "light",
+      "mode": "fullscreen",
+      "passed": true,
+      "checks": {
+        "agentHeaders": 4,
+        "metrics": 4,
+        "bodyLabels": 5,
+        "expandedContentLines": 4,
+        "defaultBackgroundRows": 75,
+        "baselineComposerSpacing": 1
+      },
+      "failures": []
+    },
+    {
+      "root": "/tmp/pi-spec-1/native-matrix/durable-tui-supervised-pause-80-light-regular-observer2-1791253016302436000",
+      "scenario": "supervised-pause",
+      "width": 80,
+      "theme": "light",
+      "mode": "regular",
+      "passed": true,
+      "checks": {
+        "agentHeaders": 4,
+        "metrics": 4,
+        "bodyLabels": 5,
+        "expandedContentLines": 4,
+        "defaultBackgroundRows": 40,
+        "baselineComposerSpacing": 1
+      },
+      "failures": []
+    }
+  ]
+}

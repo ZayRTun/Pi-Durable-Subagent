@@ -1,0 +1,284 @@
+
+> pi-tasks@0.1.0 test
+> node --experimental-strip-types --test test/*.test.ts
+
+TAP version 13
+# Subtest: normalizeTasks defaults omitted status to pending and trims text
+ok 1 - normalizeTasks defaults omitted status to pending and trims text
+  ---
+  duration_ms: 1.000834
+  type: 'test'
+  ...
+# Subtest: normalizeTasks keeps every status and an explicit skipped reason
+ok 2 - normalizeTasks keeps every status and an explicit skipped reason
+  ---
+  duration_ms: 0.147166
+  type: 'test'
+  ...
+# Subtest: normalizeTasks accepts an empty list as an explicit clear
+ok 3 - normalizeTasks accepts an empty list as an explicit clear
+  ---
+  duration_ms: 0.118417
+  type: 'test'
+  ...
+# Subtest: normalizeTasks rejects unknown top-level and per-task fields
+ok 4 - normalizeTasks rejects unknown top-level and per-task fields
+  ---
+  duration_ms: 0.108625
+  type: 'test'
+  ...
+# Subtest: normalizeTasks rejects malformed shapes
+ok 5 - normalizeTasks rejects malformed shapes
+  ---
+  duration_ms: 0.138875
+  type: 'test'
+  ...
+# Subtest: normalizeTasks rejects empty and whitespace-only text
+ok 6 - normalizeTasks rejects empty and whitespace-only text
+  ---
+  duration_ms: 0.050833
+  type: 'test'
+  ...
+# Subtest: normalizeTasks requires a nonempty reason for skipped
+ok 7 - normalizeTasks requires a nonempty reason for skipped
+  ---
+  duration_ms: 0.103833
+  type: 'test'
+  ...
+# Subtest: normalizeTasks enforces list, text, and reason bounds
+ok 8 - normalizeTasks enforces list, text, and reason bounds
+  ---
+  duration_ms: 0.154083
+  type: 'test'
+  ...
+# Subtest: tasksEqual is order-sensitive and ignores nothing else
+ok 9 - tasksEqual is order-sensitive and ignores nothing else
+  ---
+  duration_ms: 0.352583
+  type: 'test'
+  ...
+# Subtest: countStatuses counts every bucket
+ok 10 - countStatuses counts every bucket
+  ---
+  duration_ms: 0.360667
+  type: 'test'
+  ...
+# Subtest: parseSnapshot rejects an unsupported version, unknown fields, and malformed tasks
+ok 11 - parseSnapshot rejects an unsupported version, unknown fields, and malformed tasks
+  ---
+  duration_ms: 0.149667
+  type: 'test'
+  ...
+# Subtest: reconstructTasks applies snapshots root-to-leaf and ignores other entries
+ok 12 - reconstructTasks applies snapshots root-to-leaf and ignores other entries
+  ---
+  duration_ms: 0.094208
+  type: 'test'
+  ...
+# Subtest: reconstructTasks keeps the last valid snapshot when the newest one is corrupt
+ok 13 - reconstructTasks keeps the last valid snapshot when the newest one is corrupt
+  ---
+  duration_ms: 0.055292
+  type: 'test'
+  ...
+# Subtest: reconstructTasks clears the error when a later snapshot is valid again
+ok 14 - reconstructTasks clears the error when a later snapshot is valid again
+  ---
+  duration_ms: 0.05075
+  type: 'test'
+  ...
+# Subtest: formatStatusLine is compact and empty when there is nothing to show
+ok 15 - formatStatusLine is compact and empty when there is nothing to show
+  ---
+  duration_ms: 0.104958
+  type: 'test'
+  ...
+# Subtest: summarizeTasks produces a readable, single-line-per-task summary
+ok 16 - summarizeTasks produces a readable, single-line-per-task summary
+  ---
+  duration_ms: 0.079916
+  type: 'test'
+  ...
+# Subtest: normalizeTasks accepts a full 1500+ character step and rejects text over the bound
+ok 17 - normalizeTasks accepts a full 1500+ character step and rejects text over the bound
+  ---
+  duration_ms: 0.054958
+  type: 'test'
+  ...
+# Subtest: normalizeTasks preserves multiline text while rejecting terminal-unsafe controls
+ok 18 - normalizeTasks preserves multiline text while rejecting terminal-unsafe controls
+  ---
+  duration_ms: 0.0765
+  type: 'test'
+  ...
+# Subtest: unknown field errors are sanitized before they can reach a terminal
+ok 19 - unknown field errors are sanitized before they can reach a terminal
+  ---
+  duration_ms: 0.05075
+  type: 'test'
+  ...
+# Subtest: stored snapshots with control characters are rejected as corrupt
+ok 20 - stored snapshots with control characters are rejected as corrupt
+  ---
+  duration_ms: 0.033833
+  type: 'test'
+  ...
+# Subtest: singleLinePreview collapses and bounds any stored or historical string
+ok 21 - singleLinePreview collapses and bounds any stored or historical string
+  ---
+  duration_ms: 0.148625
+  type: 'test'
+  ...
+# Subtest: formatStatusLine always reveals a diagnostic, even with no tasks
+ok 22 - formatStatusLine always reveals a diagnostic, even with no tasks
+  ---
+  duration_ms: 0.129916
+  type: 'test'
+  ...
+# Subtest: summarizeCounts is compact and never includes task text
+ok 23 - summarizeCounts is compact and never includes task text
+  ---
+  duration_ms: 0.054333
+  type: 'test'
+  ...
+# Subtest: offline PTY probe renders a populated, paginated /tasks view in regular and fullscreen modes
+ok 24 - offline PTY probe renders a populated, paginated /tasks view in regular and fullscreen modes
+  ---
+  duration_ms: 10507.245
+  type: 'test'
+  ...
+# Subtest: set_tasks replaces the whole list, runs sequentially, and defaults status to pending
+ok 25 - set_tasks replaces the whole list, runs sequentially, and defaults status to pending
+  ---
+  duration_ms: 44.117
+  type: 'test'
+  ...
+# Subtest: invalid inputs fail visibly and preserve the last valid state
+ok 26 - invalid inputs fail visibly and preserve the last valid state
+  ---
+  duration_ms: 30.57325
+  type: 'test'
+  ...
+# Subtest: skipped requires a reason, and an empty list clears; repeating an identical list is idempotent
+ok 27 - skipped requires a reason, and an empty list clears; repeating an identical list is idempotent
+  ---
+  duration_ms: 15.53425
+  type: 'test'
+  ...
+# Subtest: branch navigation, reopen, and a new session restore the active branch
+ok 28 - branch navigation, reopen, and a new session restore the active branch
+  ---
+  duration_ms: 32.596291
+  type: 'test'
+  ...
+# Subtest: a corrupt snapshot is reported and never erases the last valid list
+ok 29 - a corrupt snapshot is reported and never erases the last valid list
+  ---
+  duration_ms: 25.022083
+  type: 'test'
+  ...
+# Subtest: a fresh session starts with no tasks and compaction preserves the list
+ok 30 - a fresh session starts with no tasks and compaction preserves the list
+  ---
+  duration_ms: 12.889208
+  type: 'test'
+  ...
+# Subtest: the real set_tasks accepts a 1500+ character playbook step and keeps write content compact
+ok 31 - the real set_tasks accepts a 1500+ character playbook step and keeps write content compact
+  ---
+  duration_ms: 17.498541
+  type: 'test'
+  ...
+# Subtest: the real set_tasks rejects unsafe control characters without changing state
+ok 32 - the real set_tasks rejects unsafe control characters without changing state
+  ---
+  duration_ms: 14.630125
+  type: 'test'
+  ...
+# Subtest: get_tasks results are deep copies and cannot mutate owned state
+ok 33 - get_tasks results are deep copies and cannot mutate owned state
+  ---
+  duration_ms: 15.941292
+  type: 'test'
+  ...
+# Subtest: a real appendEntry I/O failure reports uncertainty and preserves the surviving branch
+ok 34 - a real appendEntry I/O failure reports uncertainty and preserves the surviving branch
+  ---
+  duration_ms: 20.962208
+  type: 'test'
+  ...
+# Subtest: the same runtime clears state when the session manager starts a new session
+ok 35 - the same runtime clears state when the session manager starts a new session
+  ---
+  duration_ms: 16.939417
+  type: 'test'
+  ...
+# Subtest: collapsed tool rows are bounded and never echo a full 4096-character step
+ok 36 - collapsed tool rows are bounded and never echo a full 4096-character step
+  ---
+  duration_ms: 3.274083
+  type: 'test'
+  ...
+# Subtest: collapsed tool rows show at most five tasks and a remainder hint
+ok 37 - collapsed tool rows show at most five tasks and a remainder hint
+  ---
+  duration_ms: 0.633125
+  type: 'test'
+  ...
+# Subtest: renderers cover every status and a skip reason
+ok 38 - renderers cover every status and a skip reason
+  ---
+  duration_ms: 9.707667
+  type: 'test'
+  ...
+# Subtest: expanded rows preserve multiline text and sanitize control characters
+ok 39 - expanded rows preserve multiline text and sanitize control characters
+  ---
+  duration_ms: 0.318875
+  type: 'test'
+  ...
+# Subtest: a result without details falls back to sanitized content
+ok 40 - a result without details falls back to sanitized content
+  ---
+  duration_ms: 0.105042
+  type: 'test'
+  ...
+# Subtest: an error is visible even when the task list is empty
+ok 41 - an error is visible even when the task list is empty
+  ---
+  duration_ms: 0.137083
+  type: 'test'
+  ...
+# Subtest: /tasks sizes itself to the real viewport and exposes navigation
+ok 42 - /tasks sizes itself to the real viewport and exposes navigation
+  ---
+  duration_ms: 2.593208
+  type: 'test'
+  ...
+# Subtest: /tasks picks up a narrow resize and keeps every line within the width
+ok 43 - /tasks picks up a narrow resize and keeps every line within the width
+  ---
+  duration_ms: 5.851666
+  type: 'test'
+  ...
+# Subtest: /tasks renders all statuses, a skip reason, and sanitized control characters
+ok 44 - /tasks renders all statuses, a skip reason, and sanitized control characters
+  ---
+  duration_ms: 0.524458
+  type: 'test'
+  ...
+# Subtest: /tasks closes on Escape and Ctrl+C
+ok 45 - /tasks closes on Escape and Ctrl+C
+  ---
+  duration_ms: 0.325167
+  type: 'test'
+  ...
+1..45
+# tests 45
+# suites 0
+# pass 45
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 10584.122334

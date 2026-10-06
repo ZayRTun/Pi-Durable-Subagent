@@ -1,0 +1,69 @@
+[
+  {
+    "name": "pstack-alone",
+    "extensionPaths": [
+      "/private/tmp/pi-spec-1/independence-gate/pstack-source/extensions/pstack/index.ts"
+    ],
+    "skillFiles": {
+      "poteto-help": "/private/tmp/pi-spec-1/independence-gate/pstack-source/skills/poteto-help/SKILL.md",
+      "poteto-mode": "/private/tmp/pi-spec-1/independence-gate/pstack-source/skills/poteto-mode/SKILL.md",
+      "pstack-tdd": "/private/tmp/pi-spec-1/independence-gate/pstack-source/skills/pstack-tdd/SKILL.md",
+      "pstack-teach": "/private/tmp/pi-spec-1/independence-gate/pstack-source/skills/pstack-teach/SKILL.md"
+    },
+    "providerCalls": 1,
+    "paidProviderCalls": 0
+  },
+  {
+    "name": "durable-alone",
+    "extensionPaths": [
+      "/tmp/pi-spec-1/independence-gate/durable-source/index.ts"
+    ],
+    "providerCalls": 3,
+    "paidProviderCalls": 0,
+    "delegated": {
+      "status": "succeeded",
+      "output": "DURABLE_ALONE",
+      "definitionPath": "/private/var/folders/zk/6zwx9y7n6g5_3qgr3_62x0xr0000gn/T/independent-pstack-3Hnuqm/durable-alone/config/agents/probe.md",
+      "unavailable": []
+    }
+  },
+  {
+    "name": "optional-composition-relocated-agent",
+    "extensionPaths": [
+      "/private/tmp/pi-spec-1/independence-gate/pstack-source/extensions/pstack/index.ts",
+      "/tmp/pi-spec-1/independence-gate/durable-source/index.ts"
+    ],
+    "skillFiles": {
+      "poteto-help": "/private/tmp/pi-spec-1/independence-gate/pstack-source/skills/poteto-help/SKILL.md",
+      "poteto-mode": "/private/tmp/pi-spec-1/independence-gate/pstack-source/skills/poteto-mode/SKILL.md",
+      "pstack-tdd": "/private/tmp/pi-spec-1/independence-gate/pstack-source/skills/pstack-tdd/SKILL.md",
+      "pstack-teach": "/private/tmp/pi-spec-1/independence-gate/pstack-source/skills/pstack-teach/SKILL.md"
+    },
+    "providerCalls": 5,
+    "paidProviderCalls": 0,
+    "delegated": {
+      "status": "succeeded",
+      "output": "FORK_NAME=@zayar/pi-pstack",
+      "definitionPath": "/private/var/folders/zk/6zwx9y7n6g5_3qgr3_62x0xr0000gn/T/independent-pstack-3Hnuqm/optional-composition-relocated-agent/relocated-package/agents/poteto-agent.md",
+      "unavailable": [
+        "fffind",
+        "ffgrep",
+        "fetch_content"
+      ],
+      "activity": [
+        {
+          "callId": "owning-skill",
+          "name": "read",
+          "status": "done",
+          "summary": "/private/var/folders/zk/6zwx9y7n6g5_3qgr3_62x0xr0000gn/T/independent-pstack-3Hnuqm/optional-composition-relocated-agent…"
+        },
+        {
+          "callId": "owning-package",
+          "name": "read",
+          "status": "done",
+          "summary": "/private/var/folders/zk/6zwx9y7n6g5_3qgr3_62x0xr0000gn/T/independent-pstack-3Hnuqm/optional-composition-relocated-agent…"
+        }
+      ]
+    }
+  }
+]

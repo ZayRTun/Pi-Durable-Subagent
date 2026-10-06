@@ -1,0 +1,59 @@
+{
+  "tasks": {
+    "source": "/Users/zayar/.pi/agent/tasks",
+    "packageVersion": "0.1.0",
+    "sourceSHA256": "6b45d9d34660ef6dbd32de7ab076998bd5881ccd693c0568e8ea38c5f57c4753",
+    "filesSHA256": {
+      "README.md": "baf6513e6988e79bee5d26aa5bdad311b6b5f7d3fe3f42477fa374052235ded3",
+      "contract.ts": "d3f761e398a1379f897730632adbb00d107639cc94acead7f7d0581b82bbc3bb",
+      "index.ts": "074cb75638a85af99d832f674964f158a289e50f635c63102c4e2f6ae8dd854e",
+      "package.json": "3ae57ac4ee6c05ec9a840d5a8085902d477741ff98f06d84b51fd2ddc863cd0c",
+      "test/contract.test.ts": "45c459565cbc87ae4012bfd778b258e1c761b976e63f687477f1ae10fe9eb698",
+      "test/normal-preflight.mjs": "9c31489b75d195632eb5b713d18c113f60e78334c6eccc1e514280c72d6065f9",
+      "test/pty-probe.py": "483e5fd09d27c1e8273d6aac76b16b8ca86da72799820e5ab031bc046601b241",
+      "test/pty.test.ts": "508d60fa8231a312dd713ac9a8842283bfcfe3eb5f83a62ddfae01bf322a940b",
+      "test/seed-session.ts": "7cb43800c29d1777eed6d19539ac457541cc3afec780160926a19314de0fd117",
+      "test/session.test.ts": "ac4efc5c236abf7de8bac8d1b5edb81b3c566b2ac4617d9a9795305839073d42",
+      "test/ui.test.ts": "a8352e38e174664f9a252debd17013125fcfa10509a0aa2ef7fe75461c9ec1c6",
+      "tsconfig.json": "c671a1cbdcd40463f8ca9bbc70cfc2bfdf0a3713262b111bc6736fac6cd60802",
+      "ui.ts": "8b6d5b7c9a3e3f6ad094a27bbeda85da62662f25f238b74a691a1081d1429131"
+    },
+    "tests": 45,
+    "typecheck": "PASS with explicit relocated typeRoots override",
+    "nodeDeps": "/Users/zayar/.pi/agent/durable-subagent/node_modules",
+    "regressionDependencyVersions": {
+      "pi-ai": "1.0.0",
+      "pi-coding-agent": "1.0.0"
+    },
+    "sourceCopyMatchesOriginal": true
+  },
+  "pstack": {
+    "source": "/Users/zayar/code/pi-pstack-custom-standalone",
+    "commit": "cf6fb7e7f122204e4e37648e12a6becbda433ac1",
+    "tests": 105,
+    "typecheck": "PASS",
+    "activeDirtyStatus": " M agents/poteto-agent.md\n?? .pi/\n",
+    "regressionDependencyVersions": {
+      "pi-ai": "1.0.3",
+      "pi-coding-agent": "1.0.3"
+    }
+  },
+  "durable": {
+    "source": "/Users/zayar/code/pi-durable-subagent",
+    "commit": "4e5a761897085935ca0448aad395703e49da8c2b"
+  },
+  "host": {
+    "sdkRoot": "/Users/zayar/.pi/agent/install/releases/1.0.4/node_modules/@earendil-works/pi-coding-agent",
+    "sdkVersion": "1.0.4",
+    "activeVersionMarker": "1.0.4",
+    "nodeVersion": "v22.22.2",
+    "paidProviderCalls": 0
+  },
+  "probes": [
+    "pstack-alone",
+    "durable-alone",
+    "optional-composition-relocated-agent",
+    "tasks-alone",
+    "optional-all-three"
+  ]
+}

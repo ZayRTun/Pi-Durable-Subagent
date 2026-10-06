@@ -494,9 +494,13 @@ export default async function durableSubagent(pi: ExtensionAPI) {
         }
         return { content: [{ type: "text", text: groupSummary(group) }], details: group, isError: group.status === "failed", usage: usageForRuns(group.steps, ctx.sessionManager.getBranch()) };
       }
-      if (owningGroup && owningGroup.presentation.entries.find(entry => entry.runId === id)?.phase !== "run") {
-        const entry = owningGroup.presentation.entries.find(entry => entry.runId === id)!;
-        return { content: [{ type: "text", text: `Child ${id} · ${entry.phase === "pending" ? "Pending dependency" : "Not run"}` }], details: { id, groupId: owningGroup.id, phase: entry.phase, status: entry.phase } };
+      if (owningGroup) {
+        // Admission publishes a live child before its group phase reaches disk.
+        // Project actual children so immediate controls never report started work
+        // as an unstarted dependency during that persistence window.
+        const currentGroup = await runtime.groupStatus(owningGroup.id, sessionId);
+        const entry = currentGroup.presentation.entries.find(entry => entry.runId === id)!;
+        if (entry.phase !== "run") return { content: [{ type: "text", text: `Child ${id} · ${entry.phase === "pending" ? "Pending dependency" : "Not run"}` }], details: { id, groupId: owningGroup.id, phase: entry.phase, status: entry.phase } };
       }
       await runtime.status(id, sessionId);
       if (operation === "cancel") await runtime.cancel(id);

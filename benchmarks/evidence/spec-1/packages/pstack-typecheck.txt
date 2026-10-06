@@ -1,0 +1,4 @@
+
+> @zayar/pi-pstack@0.1.10 typecheck
+> tsc --noEmit
+
