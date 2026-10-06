@@ -1,0 +1,136 @@
+
+> @zayar/pi-pstack@0.1.10 test
+> bun tests/agents-contract.ts && bun test
+
+pstack agents contract: ok (2 roles)
+bun test v1.4.2 (744846f84)
+
+tests/poteto-help-contract.test.mjs:
+(pass) poteto-help is model-invocable and its description bounds the trigger [1.11ms]
+(pass) every other bundled skill stays user-invoked [1.48ms]
+(pass) every linked skill command label is the target skill's own command [0.65ms]
+(pass) no code span or the description names a bundled skill without its /skill: prefix [0.19ms]
+(pass) every relative link in poteto-help resolves [0.12ms]
+(pass) the routing table covers every non-principle skill in the package [0.11ms]
+(pass) every /skill: reference names a skill that exists [0.09ms]
+(pass) the mode claim in poteto-help matches the extension that owns the mode [0.15ms]
+(pass) the confirmation-hook claim matches where the extension registers the hook [0.11ms]
+(pass) help states that disable-model-invocation hides the description without blocking a read [0.10ms]
+(pass) help answers and hands back a prompt, and routes work requests to poteto-mode [0.06ms]
+(pass) poteto-help states provider ownership instead of assuming capabilities [0.27ms]
+(pass) the namespaced skills stay namespaced in the help map [0.08ms]
+(pass) the public link points at this fork, not the original repository [0.06ms]
+
+tests/package-resource-resolution.test.mjs:
+(pass) the playbooks read bundled skills from the owning package, never from project trunk [0.30ms]
+(pass) a foreign project with same-named skills cannot shadow the package's resources [1.44ms]
+
+tests/check-upstream.test.mjs:
+(pass) offline mode reports the literal delta with mapped and excluded paths [6.64ms]
+(pass) the report names the excluded paths with their recorded reason [3.16ms]
+(pass) the same version at a different commit is reported as drift and fails the check [2.79ms]
+(pass) a pinned directory that is not the recorded version fails loudly [1.37ms]
+(pass) provenance parsing rejects a non-immutable or incomplete record [0.09ms]
+(pass) online resolution reads the original repository subtree and never the historical port [0.37ms]
+(pass) a tree that comes back repository-scoped fails instead of reporting a clean diff [0.04ms]
+(pass) a truncated tree and an HTTP failure each fail clearly [0.21ms]
+(pass) offline mode never calls the network [2.93ms]
+(pass) a local pin compared against a remote candidate reports unchanged content as zero delta [1.41ms]
+(pass) a remote pin compared against a local candidate reports unchanged content as zero delta [1.28ms]
+(pass) mixed local and remote hashing recognizes changed content in both directions [1.27ms]
+(pass) an explicit sha256 inventory keeps its prefix and refuses a cross-mode compare [1.66ms]
+(pass) the JSON report is a plain serializable record [2.84ms]
+
+tests/pstack-upstream-contract.test.mjs:
+(pass) provenance pins the imported original, its base, and the historical port [0.07ms]
+(pass) every excluded original path stays out of the package [0.08ms]
+(pass) renamed original skills map onto their namespaced local directories [0.18ms]
+(pass) every skill loads with a matching frontmatter name and a description [1.49ms]
+(pass) the skills added in 0.15.9 load and the fork points at them [0.31ms]
+(pass) the skill added in 0.15.10 loads and the README points at it [0.08ms]
+(pass) poteto-mode indexes every principle skill in this package [0.26ms]
+(pass) every relative link and playbook reference resolves [4.28ms]
+(pass) poteto-mode names a playbook file for every playbook on disk [0.15ms]
+(pass) workflow prose stays provider-neutral [4.67ms]
+(pass) agents keep closed tool allowlists and definition-relative references [0.10ms]
+(pass) the package keeps its namespaced identity and Pi 1.0.2 SDK pins [0.06ms]
+(pass) the packer drops nested dependency trees and keeps scripts and provenance [369.32ms]
+(pass) the imported delta keeps its provider-neutral benchmark wiring inside the playbooks [0.24ms]
+
+tests/skill-names.test.mjs:
+(pass) workflow instructions require capabilities rather than a particular extension [0.19ms]
+(pass) package.json carries the namespaced identity [0.03ms]
+(pass) renamed skill directories carry namespaced frontmatter names [0.11ms]
+(pass) old skill directories are absent [0.03ms]
+(pass) bug-fix playbook invokes the renamed pstack-tdd skill [0.05ms]
+(pass) no skill in this package declares a bare tdd/teach frontmatter name [8.88ms]
+
+extensions/pstack/capabilities.test.ts:
+(pass) standalone mode reports missing delegation and tracking [0.14ms]
+(pass) active provider and callable tracking are optional capabilities [0.05ms]
+(pass) hidden and inactive tools do not become available by registration [0.02ms]
+
+skills/poteto-mode/scripts/watch-pr/policy.test.ts:
+(pass) readiness truth table > covers every specified row and every UNKNOWN rollup value [0.07ms]
+(pass) readiness truth table > turns a clean visible list plus GitHub refusal into an explicit CI blocker [0.47ms]
+(pass) snapshot query planning > does not query commit rollups while queued checks are pending [0.08ms]
+(pass) snapshot query planning > queries rollups for settled and failed lists [0.07ms]
+(pass) snapshot query planning > short-circuits merged rows before threads and checks [0.04ms]
+(pass) scans stacks tier-major so an upstack conflict outranks frontier CI [0.10ms]
+(pass) attributes a stack wait to the PR whose checks are pending, not the bottom [0.07ms]
+(pass) waits on a draft while checks are pending, then reports the draft gate [0.06ms]
+(pass) queued-stack cadence > drops a sweep head only after its snapshot succeeds [0.18ms]
+(pass) queued-stack cadence > resumes the sweep at the PR whose read failed [0.68ms]
+(pass) queued-stack cadence > emits a completed sweep only after its final successful snapshot [0.08ms]
+(pass) queued-stack cadence > ADVANCE continues directly to the new frontier without sleeping [0.22ms]
+(pass) queued-stack cadence > deduplicates identical waits and schedules the next due sweep [0.08ms]
+(pass) uses the specified retry floor and cap [0.01ms]
+
+skills/poteto-mode/scripts/watch-pr/github.test.ts:
+(pass) checks fallback chain > uses a non-empty fast-path result without a rollup query [0.04ms]
+(pass) checks fallback chain > paginates GraphQL when the fast path is unusable [0.06ms]
+(pass) checks fallback chain > falls back when valid fast-path JSON represented an empty list [0.04ms]
+(pass) checks fallback chain > fails closed when both paths are empty [0.06ms]
+(pass) rollup node mapping > maps terminal and non-terminal CheckRun states fail closed [0.10ms]
+(pass) rollup node mapping > classifies an in-progress Code Review Gate from the rollup as the gate [0.02ms]
+(pass) rollup node mapping > maps StatusContext states and drops unknown typenames [0.02ms]
+(pass) closed enum parsing > accepts mergeStateStatus CONFLICTING [0.06ms]
+(pass) closed enum parsing > reads gh's empty reviewDecision as no decision rather than a parse failure
+(pass) closed enum parsing > still rejects an unknown reviewDecision [0.05ms]
+(pass) closed enum parsing > rejects unknown enum values as retryable errors carrying the raw value [0.03ms]
+(pass) annotates Bugbot threads with distinct review-pass counts [0.23ms]
+(pass) context and stack discovery > returns a fully explicit context without any reader call [0.08ms]
+(pass) context and stack discovery > uses the local origin before currentPr for an explicit number [0.04ms]
+(pass) context and stack discovery > orders the connected stack bottom-to-top [0.12ms]
+
+skills/poteto-mode/scripts/watch-pr/cli.test.ts:
+(pass) parseArgs > uses the specified defaults [0.99ms]
+(pass) parseArgs > parses a frozen queued stack bottom-to-top [0.87ms]
+(pass) parseArgs > rejects every invalid mode and numeric shape as usage [2.17ms]
+(pass) rendering > emits compact valid JSON by default [0.04ms]
+(pass) rendering > renders the Markdown table from the same verdict only [0.13ms]
+(pass) main > returns EX_USAGE 64 and writes usage errors only to stderr [0.10ms]
+(pass) main > bypasses the queue machine for queued-stack status-only [0.35ms]
+(pass) main > returns exit 4 for a hidden GitHub-side CI refusal [0.17ms]
+(pass) main > shows help without touching the reader [1.11ms]
+
+skills/poteto-mode/scripts/orch/orch.test.ts:
+(pass) Store > initializes an idempotent plain-file store and releases its lock [3.38ms]
+(pass) Store > composes unit add, set, get, list, and counts [3.87ms]
+(pass) Store > records, replaces, checks, and summarizes typed ledger verdicts [2.98ms]
+(pass) Store > pushes, peeks, and atomically drains inbox pointers [3.86ms]
+(pass) Store > replaces a stale lock whose holder pid is dead [4.98ms]
+(pass) Store > blocks a writer and steals the pid lock only with force [2.94ms]
+(pass) Store > parks gates, stores standing orders, and renders status [5.54ms]
+(pass) Store > resolves the ordered Graphite frontier and validates an optional pin [1070.53ms]
+(pass) Store > rejects unparseable Graphite output loudly [568.36ms]
+(pass) Store > rejects malformed TSV, verdict, frontier, and inbox data [3.90ms]
+(pass) Store > rejects operations after close [2.53ms]
+(pass) orch CLI > prints commander help and rejects invalid parsing with exit 1 [68.28ms]
+(pass) orch CLI > accepts ORCH_STORE and emits complete JSON [44.78ms]
+(pass) orch CLI > maps user and not-found outcomes to the preserved exit codes [108.15ms]
+
+ 105 pass
+ 0 fail
+ 206 expect() calls
+Ran 105 tests across 10 files. [2.35s]

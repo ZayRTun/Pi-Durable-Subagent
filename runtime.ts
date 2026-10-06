@@ -494,8 +494,15 @@ export class Runtime {
       persist = true;
       const continuing = run.status === "paused" && options.continuation;
       const failedRecovery = run.status === "failed";
-      const handoffRecovery = run.status === "interrupted" && run.interruptedPhase === "preparing-handoff";
-      if (continuing || failedRecovery || handoffRecovery) {
+      const interruptedRecovery = run.status === "interrupted";
+      const handoffRecovery = interruptedRecovery && run.interruptedPhase === "preparing-handoff";
+      // A tool without an explicit safe replay policy is recorded as uncertain
+      // after interruption. Retire that submission and start a new approved
+      // attempt; SDK-managed safe calls can continue their retained submission.
+      const interruptedUnsafe = interruptedRecovery && (run.activityLog ?? []).some(call =>
+        (call.status === "running" || call.uncertain || call.failed) && options.tools.find(tool => tool.name === call.name)?.replay !== "safe");
+      const freshRecovery = handoffRecovery || interruptedUnsafe;
+      if (continuing || failedRecovery || freshRecovery) {
         run = { ...run, executionAttempt: (run.executionAttempt ?? 0) + 1 };
         if (continuing) {
           run.timeoutMinutes = continuing.timeoutMinutes;
@@ -571,7 +578,7 @@ export class Runtime {
           if (!historicalCalls.has(call.callId)) seenCalls.add(call.callId);
           const item = toolActivity(call, argsById.get(call.callId));
           const index = log.findIndex((existing) => existing.callId === call.callId);
-          if (index < 0) log.push(item); else log[index] = item;
+          if (index < 0) log.push(item); else log[index] = { ...item, ...(log[index]!.uncertain ? { uncertain: true } : {}) };
           if (log.length > 30) log.shift();
         }
         run.toolCount = priorToolCount + seenCalls.size;
@@ -630,7 +637,24 @@ export class Runtime {
       }
       const waitContext = withAbortSignal(controller.signal, context);
       if (controller.signal.aborted) throw new Error(String(controller.signal.reason));
-      const submission = await root.submit({ type: "input", content: continuing ? `Continue the original task within its original scope. Parent reassessment: ${continuing.reassessment}. Use retained progress; do not repeat completed side effects.` : failedRecovery || handoffRecovery ? "The operator approved recovery of the original task. Review retained history and the previous failure; continue remaining work without blindly replaying the unanswered submission or completed side effects." : run.task, requestId: attempt ? `continuation:${run.id}:${attempt}` : `delegation:${run.id}` }, waitContext);
+      // A reopened interrupted execution may still have an unanswered SDK-owned
+      // submission. Retire that ordinary conversation scope before issuing the
+      // separately identified, operator-approved recovery input.
+      if (freshRecovery) {
+        if (interruptedUnsafe) {
+          // Conversation abort records an SDK-level cancellation, which cannot say
+          // whether an external operation took effect before shutdown. Keep that
+          // original uncertainty on the Run before retiring the unanswered input.
+          for (const call of run.activityLog ?? []) {
+            if (call.status === "running" && options.tools.find(tool => tool.name === call.name)?.replay !== "safe") {
+              call.status = "done"; call.failed = true; call.uncertain = true;
+            }
+          }
+          await save(file, run);
+        }
+        await root.abort(context);
+      }
+      const submission = await root.submit({ type: "input", content: continuing ? `Continue the original task within its original scope. Parent reassessment: ${continuing.reassessment}. Use retained progress; do not repeat completed side effects.` : failedRecovery || freshRecovery ? "The operator approved recovery of the original task. Review retained history and the previous failure; continue remaining work without blindly replaying the unanswered submission or completed side effects." : run.task, requestId: attempt ? `continuation:${run.id}:${attempt}` : `delegation:${run.id}` }, waitContext);
       this.steering.set(run.id, guidance => {
         const admission = steeringAdmissions.then(async () => {
           if (!acceptingGuidance || controller.signal.aborted || pauseRequested || run.status !== "running" || (await submission.status(context)).status === "done") throw new Error("Steering requires active work; use follow-up for a completed child");

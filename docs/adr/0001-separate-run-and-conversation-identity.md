@@ -1,0 +1,3 @@
+# Keep Run identity separate from Conversation identity
+
+Follow-up work needs the original model context, while each execution needs an independent status, result, and usage history. Give every follow-up a new Run linked to the retained Conversation; reusing a Run would mix lifecycle and billing, while starting a fresh Conversation would discard useful prior context. Paused continuation, approved recovery of a failed Run, interrupted handoff recovery, and recovery with unresolved unsafe tools receive a distinct execution attempt so delivery can be deduplicated without rewriting earlier history. An explicitly replay-safe retained submission continues through the SDK's existing submission instead of creating a new attempt.

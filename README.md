@@ -1,12 +1,12 @@
 # Pi Durable subagents
 
-A minimal in-process Pi 1.0 extension for blocking delegation to named agents, with persistent Sub-agent conversations and explicit recovery. Built on `@earendil-works/pi-durable`, not on a third-party subagent extension.
+A minimal in-process Pi 1.0 extension for blocking or explicitly supervised delegation to named agents, with retained Sub-agent conversations and explicit recovery. Built on `@earendil-works/pi-durable`, not on a third-party subagent extension.
 
 ## Repository and issue tracker
 
 The standalone repository is [ZayRTun/Pi-Durable-Subagent](https://github.com/ZayRTun/Pi-Durable-Subagent). Its production starting point is tagged `baseline-current`.
 
-The [supervised Delegation spec](https://github.com/ZayRTun/Pi-Durable-Subagent/issues/1) and implementation tickets live in this repository. The spec describes future behavior, not capabilities already supported by this baseline. See the [local spec](specs/supervised-delegation.md) and [issue tracker conventions](docs/agents/issue-tracker.md).
+The [supervised Delegation spec](https://github.com/ZayRTun/Pi-Durable-Subagent/issues/1) and implementation tickets live in this repository. See the [local spec](specs/supervised-delegation.md), [issue tracker conventions](docs/agents/issue-tracker.md), [domain glossary](GLOSSARY.md), and [architecture decisions](docs/adr/).
 
 ## Try it without changing your setup
 
@@ -48,7 +48,7 @@ An unrecognized parameter is an error naming it, never an ignored key. A caller 
 - Closing Pi suspends work; reopening never automatically resumes it.
 - Interactive resume requires confirmation. `/subagents` records a one-use approval before asking the parent to call the resume tool.
 - Headless resume requires the operator-supplied `--subagent-resume <run ID>` flag, not merely a model assertion of permission.
-- Failed/aborted runs are terminal. Resume retrieves their recorded result; a deliberate new delegation starts new work.
+- A succeeded or cancelled Run is terminal. Failed and interrupted Runs stay stopped until explicit recovery approval; paused Runs require a reassessment and a fresh allowance choice.
 - A passing test suite from a Sub-agent proves its code and its own tests agree, nothing more. It resolves any ambiguity in the task silently and then encodes that choice in the tests it writes. State the acceptance criteria explicitly, including what happens on the failure path, or the run will pick an interpretation for you.
 
 Durable delegation calls use Pi's self-rendered shell, with no background fill in any execution state. They sit on the normal chat background without changing user-message or other tool styling.
@@ -59,7 +59,7 @@ Metrics degrade by dropping tokens first, then the tool count, keeping model, th
 
 Expanded, each entry shows `Task`, then for a running run `Current tool` (from real call arguments, or `Waiting for model`) and at most three finished calls newest first, excluding the running call, or for a finished run its `Response` rendered as Pi Markdown. Multi-step calls keep the requested order, prefix each child with `├`/`└`, and show pending and Not run steps, so a partial group update never hides earlier completed workers. Only uncertainty or an interrupted run adds a compact warning; a missing tool list does not. Pi's native Ctrl+O still expands the whole row, and in fullscreen a click on a child header expands just that child. Agent color, duration, and usage all come from the record, so an expanded run after a restart reads the same as a live one. A TUI-only fast clock animates the running icon; it is owned by the delegation lifecycle, not by any component.
 
-Pi's normal tool expansion shows current/recent activity only while running, then prioritizes the task and response. Routine extension metadata and full tool histories are omitted. Committed live usage is read from the replicated `pi.usage` ledger without polling SQLite on each animation frame; model-facing billing is still reported only when the tool finishes. Very large answers are truncated for display/model context; `/subagents` holds the full result, and the record file path is no longer shown in the row. Duration excludes time while closed, but a hard crash can lose unsaved duration from its last attempt. The in-memory activity log may also lose its latest updates; SQLite remains authoritative for recovery. The recorded tool-use count is tracked separately from the bounded activity log and reconstructed from durable history on recovery, so a busy or resumed run is not misreported as its last thirty calls. Cancelling an ordered batch or chain leaves unstarted steps marked Not run instead of starting new cancelled runs.
+Pi's normal tool expansion shows current/recent activity only while running, then prioritizes the task and response. Routine extension metadata and full tool histories are omitted. Committed live usage is read from the replicated `pi.usage` ledger without polling SQLite on each animation frame. Blocking call usage is reported when the call finishes; detached execution spend is reported by the first relevant management result. Very large answers are truncated for display/model context; `/subagents` holds the full result, and the record file path is no longer shown in the row. Duration excludes time while closed, but a hard crash can lose unsaved duration from its last attempt. The in-memory activity log may also lose its latest updates; SQLite remains authoritative for recovery. The recorded tool-use count is tracked separately from the bounded activity log and reconstructed from durable history on recovery, so a busy or resumed run is not misreported as its last thirty calls. Cancelling an ordered batch or chain leaves unstarted steps marked Not run instead of starting new cancelled runs.
 
 ## Run States
 
@@ -68,15 +68,53 @@ Every delegation records its execution state:
 - **Running** — working within its optional execution allowance.
 - **Pausing** — allowance expired; the current tool retains workspace ownership while it finishes. New work tools are prohibited by the host, including calls already emitted in the same batch.
 - **Preparing handoff** — work tools have drained; a final model turn runs with no tools and no separate handoff deadline.
-- **Paused** — unfinished work and a handoff are retained, and workspace ownership is released. If the handoff failed, the retained record explains its limitation. Inspection and reopening leave it stopped; continuation controls are not yet available.
+- **Paused** — unfinished work and a handoff are retained, and workspace ownership is released. If the handoff failed, the retained record explains its limitation. Inspection and reopening leave it stopped; continuation requires an explicit reassessment and a fresh allowance choice.
 - **Succeeded** — finished successfully.
 - **Failed** — finished unsuccessfully from an execution/provider error. Historical timeout failures remain Failed.
 - **Aborted** — deliberately cancelled; cancellation does not undo completed effects.
 - **Interrupted** — the owning session closed or ownership was lost. Reopening leaves it stopped, and recovery requires explicit approval.
 
+The persisted status for deliberate cancellation is `aborted`; the native row and parent-facing descriptions call it **Cancelled**. `Done` is the compact display label for a succeeded execution.
+
 Handoff preparation uses up to three transient retries with exponential backoff and one corrective turn for empty text. Permanent errors stop immediately; exhausted or empty handoffs preserve Paused with a limitation and recorded usage. Pass `handoffRetryPolicy: "unlimited"` explicitly to remove the transient retry ceiling; cancellation and session shutdown still stop preparation. The policy may be set on a call or overridden per step. Handoff retries retain workspace ownership until safely paused.
 
 For an allowance, a checkpoint is requested at 80% of the work period. The host closes tool admission at expiry; prompt instructions alone do not enforce this boundary. A stuck tool stays Pausing until it finishes or cancellation stops it. The expanded native row shows the complete task, current/retained activity, and handoff using the existing layout. A handoff is separate from the final task answer.
+
+## Nonblocking supervision
+
+Blocking remains the default. Set `nonblocking: true` to return an execution handle after admission while work continues in the owning Pi session:
+
+```js
+const { id } = subagent({ agent: "scout", task: "Map the login flow.", nonblocking: true })
+subagent_status({ run: id })
+subagent_wait({ run: id, waitSeconds: 30 })
+subagent_steer({ run: id, guidance: "Include the callback path and relevant tests." })
+subagent_cancel({ run: id })
+```
+
+`subagent_wait` defaults to 60 seconds and accepts 0–3600 seconds. A wait timeout returns the current state; it does not change the execution allowance, pause, or cancel the child. Cancellation stops pending work but does not undo completed side effects. The parent can continue reasoning and use other non-conflicting tools after a nonblocking start. The child retains workspace ownership while it works, is pausing, or prepares a handoff; a safely paused execution releases ownership. Parent writes to that workspace are blocked while ownership is held. Admission defaults to eight active executions per Pi session; set `PI_SUBAGENT_MAX_ACTIVE` to a positive integer to change the limit. At capacity, work is rejected without a hidden queue.
+
+Use the same `nonblocking: true` option for `tasks` or `chain` to receive a group handle. Status, wait, and cancel accept either the group handle or an individual child handle. An allowance-paused dependency stays pending until that child continues and succeeds; parallel worktree siblings proceed independently. See [Several steps in one call](#several-steps-in-one-call) for the group behavior.
+
+Continue allowance-paused work with a reassessment and a fresh allowance choice. Use `null` to remove the deadline:
+
+```js
+subagent({ resume: id, reassessment: "The API map is complete; inspect the tests next.", timeoutMinutes: 20 })
+```
+
+Interrupted and historical failed executions require explicit operator approval before recovery; cancellation is terminal. Continuing paused work, recovering a failed Run, recovering an interrupted handoff, or recovering interrupted work with unresolved unsafe tools starts a distinct execution attempt and preserves prior history. If interrupted work has only explicitly replay-safe retained submissions, the SDK may continue its existing submission without a new attempt. A tool call whose outcome was interrupted may have had external effects, so recovery reports that uncertainty and does not promise exactly-once side effects.
+
+Steer active work with `subagent_steer({ run, guidance })`. Guidance is queued for a safe model or tool boundary and does not interrupt a running tool. Status distinguishes accepted guidance from guidance later inserted into the conversation; insertion does not establish that the model followed it. A completed execution accepts a separate follow-up instead:
+
+```js
+subagent_followup({ run: id, task: "Using the retained API map, identify missing auth tests." })
+```
+
+A follow-up receives a new execution handle and keeps the prior answer and usage history. Before reusing context, inspect `contextHealth` in status. If the estimate crosses the warning threshold, choose `reuse: true`; use `fresh: true` to start a new conversation. Agent, model, tools, and workspace remain fixed for retained reuse. Context size is an approximate committed-context estimate, not cumulative billed tokens or an exact next-request measurement; an unknown estimate stays unknown.
+
+Automatic compaction is disabled. An idle completed or allowance-paused conversation can be compacted explicitly with `subagent_compact({ run: id })`. Its result reports **applied**, **no-op**, or **failed**, and keeps old answers retrievable. Compaction and context inspection do not promise restored reasoning quality.
+
+Nonblocking work produces retained completion, failure, pause, concrete blocker, or stall notifications at parent boundaries. Sticky rows show relevant nonblocking work above the composer and disappear after final result delivery. Notification custom messages are informational; ordinary Pi host usage accounting is reported as newly accrued execution usage through management results and is deduplicated across retrieval. Full results remain available by execution handle.
 
 ## Agent definitions
 
@@ -139,7 +177,7 @@ Poteto's delegation interface is supported where it is additive, and rejected lo
 | `subagents_list` | provided |
 | `subagents_write_task_models` | provided, for pools and pins |
 
-Not built, with the reason. Persistent specialists and the follow-up, stop, and interrupt tools are absent, because nothing sends work back to a live Sub-agent. Inspect the recorded task and Run State before requesting recovery. A fresh Delegation can repeat side effects and is not a substitute for approved recovery. Recovery here is for a crashed run, not for a conversation that stays open.
+Follow-up work uses a new Run in the retained conversation, preserving prior context while keeping its result and new usage separate. The parent can steer active work at safe boundaries, wait without stopping it, and inspect or cancel an ordered group. An interrupted Run stays stopped on reopen; recovery requires explicit operator approval. Paused continuation, failed-Run recovery, interrupted handoff recovery, and recovery with unresolved unsafe tools receive a distinct execution attempt. Explicitly replay-safe retained submissions may continue through the SDK's existing submission without a new attempt. Uncertain tool outcomes remain in the history for the model to assess, so approval does not guarantee that external side effects can be undone or that a model will obey every instruction.
 
 Companion tools. `subagents_list` reports every loaded definition with its declared tools and declared model/thinking; the model a delegation actually runs on is resolved per delegation from the request, configured pins/pools, or the caller. `subagents_write_task_models` merges model pools and per-agent pins into the config file. `worktree_list` and `worktree_remove` manage the checkouts this extension created, and removal keeps the branch because it holds the work.
 
@@ -199,7 +237,7 @@ Default storage: `~/.pi/agent/sessions/durable-subagents/`. Override with `PI_SU
 
 Each run has a `run.json` record and its own `agent.sqlite` database. Durable owns the transcript, task checkpoints, submissions, and usage. The record snapshots identity/configuration and caches the terminal result for inexpensive retrieval. A stable submission request ID reuses work if the process dies between admission and result delivery. SQLite is authoritative for execution; the record may still say running after a hard crash.
 
-One database/harness per run prevents explicit resume, submitting, waiting, or cancelling from waking other interrupted runs. Only a live Pi tool invocation supplies execution adapters; contexts are not reused after shutdown.
+One database/harness per run prevents explicit resume, submitting, waiting, or cancelling from waking other interrupted runs. Only a live Pi tool invocation supplies execution adapters; contexts are not reused after shutdown. The Pi SDK's generic nested-call records are scoped to the parent tool call and do not provide stable IDs for child calls that continue after a detached start returns. Durable's execution history and usage ledger remain authoritative; notification usage metadata is informational, while management results report newly accrued usage through Pi's standard accounting path.
 
 Locks prevent two processes opening the same run, and prevent delegations sharing the same canonical working directory **when using the same storage root**. Locks heartbeat and expire 10 seconds after an unclean exit; immediate recovery may need a short retry. Different storage roots, unrelated processes, and manual edits are not coordinated. One delegation per working directory is deliberately conservative, even for agents described as read-only.
 
@@ -212,11 +250,11 @@ Cancellation/explicit execution deadlines are cooperative: a third-party tool th
 ## Verification
 
 ```sh
-npm run typecheck --prefix agent/durable-subagent
-npm test --prefix agent/durable-subagent
+npm run typecheck
+npm test
 ```
 
-The current suite passes **127 tests**. Tests include actual Pi CLI SIGKILL/reopen/approved recovery with real lock expiration and no repeat of a controlled side effect, structured uncertainty diagnostics, immediate tool-progress updates and elapsed-time refresh while blocked, byte-identical and lock-free terminal retrieval, generic-error rendering, and a real Pi SDK parent using a scripted local provider through both normal file loading and inline factories, automatic workspace context for relative-path tasks, optional tools both present and absent, permission-hook blocking, enforced headless resume approval, incremental usage accounting, SDK shutdown/reopen/approved resume with frozen role/workspace and no unsafe replay, result retrieval without rerunning, cancellation, run/workspace ownership, definition validation, and narrow-width Unicode rendering.
+The full suite currently passes **187 tests**. Final combined acceptance evidence is recorded in [the supervised delegation acceptance report](benchmarks/supervised-delegation-acceptance.md). The report separates offline scripted-provider coverage, installed SDK and host behavior, native terminal evidence, and independent Tasks/pstack checks. Scripted provider results establish protocol behavior, not live model quality or obedience. The original 127-test count describes the historical baseline only.
 
 The extension uses `createModels` from Pi AI's root export: Pi 1.0's unbundled loader aliases that root to its compatibility entrypoint, which does not correctly resolve arbitrary `/models` subpath imports. Host-provided Pi AI, coding-agent, and TUI packages are pinned peers with matching development dependencies; the extension does not declare them as runtime dependencies.
 

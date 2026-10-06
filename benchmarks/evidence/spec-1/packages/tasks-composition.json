@@ -1,0 +1,38 @@
+[
+  {
+    "name": "tasks-alone",
+    "extensionPaths": [
+      "/tmp/pi-spec-1/independence-gate/tasks-source/index.ts"
+    ],
+    "taskState": [
+      {
+        "text": "Independent Tasks-only ownership marker",
+        "status": "in_progress"
+      }
+    ],
+    "subagentToolCount": 0,
+    "paidProviderCalls": 0,
+    "providerCalls": 5,
+    "reloadRetainsTasks": true,
+    "durableMutatesTasks": false
+  },
+  {
+    "name": "optional-all-three",
+    "extensionPaths": [
+      "/tmp/pi-spec-1/independence-gate/tasks-source/index.ts",
+      "/tmp/pi-spec-1/independence-gate/pstack-source/extensions/pstack/index.ts",
+      "/tmp/pi-spec-1/independence-gate/durable-source/index.ts"
+    ],
+    "taskState": [
+      {
+        "text": "Independent Tasks-only ownership marker",
+        "status": "in_progress"
+      }
+    ],
+    "subagentToolCount": 1,
+    "paidProviderCalls": 0,
+    "providerCalls": 7,
+    "reloadRetainsTasks": true,
+    "durableMutatesTasks": false
+  }
+]
