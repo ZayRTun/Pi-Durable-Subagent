@@ -20,7 +20,7 @@ parser.add_argument('extension', type=Path)
 parser.add_argument('--width', type=int, default=80)
 parser.add_argument('--theme', choices=['dark', 'light'], default='dark')
 parser.add_argument('--mode', choices=['regular', 'fullscreen'], default='fullscreen')
-parser.add_argument('--scenario', choices=['single', 'ordered', 'chain', 'parallel', 'failure', 'cancel', 'cancel-chain', 'pause', 'baseline', 'supervised', 'supervised-pause'], default='chain')
+parser.add_argument('--scenario', choices=['single', 'ordered', 'chain', 'parallel', 'failure', 'cancel', 'cancel-chain', 'pause', 'baseline', 'supervised', 'supervised-pause', 'supervised-completion'], default='chain')
 a = parser.parse_args()
 root, extension = a.root.resolve(), a.extension.resolve()
 assert root.name.startswith('durable-tui-'), 'Disposable durable-tui-* directory required'
@@ -199,10 +199,18 @@ try:
             drain(10)
             paused,_=capture('sticky-paused')
             assert 'Paused' in paused and 'Handoff' in paused,'Safely paused detached work stays visible'
-        os.write(master,b'cancel supervised\r');drain(1)
+        if a.scenario == 'supervised-completion':
+            drain(10)
+        else:
+            os.write(master,b'cancel supervised\r');drain(1)
         cancelled,_=capture('sticky-removed')
         # Cached start remains in transcript; the sticky sibling is entirely removed.
-        assert cancelled.count('worker (')==1, 'Cancelled execution removes the complete sticky area'
+        assert cancelled.count('worker (')==1, 'Delivered/cancelled execution removes the complete sticky area'
+        if a.scenario == 'supervised-completion':
+            assert 'succeeded' in cancelled, 'Completion inserted before sticky removal'
+            os.write(master,b'\x0f');drain(.15)
+            delivered,_=capture('delivered-expanded')
+            assert 'Full retained result:' in delivered, 'Delivered notification supports native expansion'
         assert 'Offline fixture complete.' in cancelled
         (root/'acceptance.json').write_text(json.dumps({'scenario':a.scenario,'width':a.width,'theme':a.theme,'mode':a.mode,'parentReasoning':True,'stickyPlacement':True,'spinnerAdvanced':True,'nativeExpansion':True,'mouseExpansion':a.mode=='fullscreen','removalToBaselineSpacer':True,'paidProviderCalls':0},indent=2))
         print(f'PASS: supervised native sticky {a.width} {a.theme} {a.mode}')
