@@ -564,8 +564,9 @@ export class Runtime {
       return { ...run, contextHealth: await inspectContext(await harness.root(context), capacity) };
     } finally { try { await harness?.close(context); } finally { await release(); } }
   }
-  async compact(id: string, options: { sessionId: string; models: Models; instructions?: string; signal?: AbortSignal }): Promise<Run> {
+  async compact(id: string, options: { sessionId: string; models: Models; instructions?: string; operationId?: string; signal?: AbortSignal }): Promise<Run> {
     const run = await this.status(id, options.sessionId);
+    if (options.operationId && run.compactions?.some(operation => operation.id === options.operationId)) return this.inspect(id, options);
     if (this.closing) throw new Error("Runtime is shutting down");
     if (this.active.has(id) || this.managing.has(id) || !["succeeded", "paused"].includes(run.status)) throw new Error("Compaction requires an eligible idle completed or allowance-paused conversation");
     if ([...this.active.values(), ...this.managing.values()].filter(item => item.sessionId === options.sessionId).length >= this.maxActive) throw new Error("Execution capacity is busy");
@@ -576,7 +577,7 @@ export class Runtime {
     this.managing.set(id, { stop: abort, done, cwd: run.cwd, sessionId: run.sessionId });
     try { return await done; } finally { this.managing.delete(id); options.signal?.removeEventListener("abort", abort); }
   }
-  private async compactIdle(run: Run, options: { models: Models; instructions?: string }, signal: AbortSignal): Promise<Run> {
+  private async compactIdle(run: Run, options: { models: Models; instructions?: string; operationId?: string }, signal: AbortSignal): Promise<Run> {
     const directory = this.path(run.id);
     const release = await lockfile.lock(directory, { realpath: false, stale: 10000, update: 2000, retries: 0 });
     let workspaceRelease: (() => Promise<void>) | undefined; let harness: Harness | undefined;
@@ -592,7 +593,7 @@ export class Runtime {
       const inbox = state.value.docs["pi.inbox"] as { items?: unknown[] } | undefined;
       if (inspection.tasks.length || inspection.submissions.length || live?.run || live?.compactions?.length || inbox?.items?.length) throw new Error("Retained conversation has unfinished work; compaction refused without resuming it");
       const before = modelUsage((await harness.usage(context)).models);
-      const operation: NonNullable<Run["compactions"]>[number] = { id: randomUUID(), outcome: "noop", usage: before, at: Date.now() };
+      const operation: NonNullable<Run["compactions"]>[number] = { id: options.operationId ?? randomUUID(), outcome: "noop", usage: before, at: Date.now() };
       try {
         if (signal.aborted) throw new Error("Compaction cancelled");
         const task = await root.compact(options.instructions, context);

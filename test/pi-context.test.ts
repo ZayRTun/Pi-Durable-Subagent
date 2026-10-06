@@ -34,7 +34,13 @@ async function host(window:number, tokens:number, action:'inspect'|'compact'|'co
   ({session}=await createAgentSession({cwd:directory,agentDir:directory,modelRuntime:models,model:models.getModel('faux','faux-1')!,settingsManager:settings,resourceLoader:loader,sessionManager:SessionManager.inMemory(directory),thinkingLevel:'off'}));
   await session.prompt('Start.');
   faux.setResponses([fauxAssistantMessage([fauxToolCall(action.startsWith('compact')?'subagent_compact':'subagent_status',{run:handle},{id:'inspect'})],{stopReason:'toolUse'}),...(action==='compact'?[fauxAssistantMessage(summary)]:[]),fauxAssistantMessage('Inspected.')]);
-  await session.prompt('Inspect.');const result=session.messages.findLast(m=>m.role==='toolResult');assert.ok(result?.role==='toolResult');assert.equal(result.isError,action==='compact-busy'||(action==='compact'&&summary===''),String(result.content[0]?.type==='text'?result.content[0].text.slice(0,200):''));return {...result.details as any, inspectionText:result.content};
+  await session.prompt('Inspect.');const result=session.messages.findLast(m=>m.role==='toolResult');assert.ok(result?.role==='toolResult');assert.equal(result.isError,action==='compact-busy'||(action==='compact'&&summary===''),String(result.content[0]?.type==='text'?result.content[0].text.slice(0,200):''));if(action==='compact') {
+   const original=result.details as any;
+   faux.setResponses([fauxAssistantMessage([fauxToolCall('subagent_compact',{run:handle},{id:'inspect'})],{stopReason:'toolUse'}),fauxAssistantMessage('Historical compaction receipt.')]);
+   await session.prompt('Retrieve the same explicit operation.');const replay=session.messages.findLast(m=>m.role==='toolResult');assert.ok(replay?.role==='toolResult');
+   assert.equal((replay.details as any).compactions.length,original.compactions.length);assert.equal(replay.usage,undefined,'historical operation must not rebill compaction');
+  }
+  return {...result.details as any, inspectionText:result.content};
  } finally {if(session){await session.extensionRunner.emit({type:'session_shutdown',reason:'quit'});session.dispose();}for(const [key,val]of Object.entries({PI_SUBAGENT_STORAGE:old.storage,PI_SUBAGENT_AGENTS:old.agents})){if(val===undefined)delete process.env[key];else process.env[key]=val;}await rm(directory,{recursive:true,force:true});}
 }
 

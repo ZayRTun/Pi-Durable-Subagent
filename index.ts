@@ -418,17 +418,23 @@ export default async function durableSubagent(pi: ExtensionAPI) {
       if (operation === "cancel") await runtime.cancel(id);
       const run = operation === "wait" ? await runtime.wait(id, { sessionId, timeoutSeconds: typeof args.waitSeconds === "number" ? args.waitSeconds : undefined, signal }) : await runtime.inspect(id, { sessionId, models: bridgeModels(ctx.modelRegistry, id) });
       observeRun(run, ctx);
-      return { content: [{ type: "text", text: `Run ${run.id} · ${run.status} · ${run.activity}\n${run.steering ? `Guidance: accepted ${run.steering.accepted}, consumed ${run.steering.consumed}, pending ${run.steering.pending}, discarded ${run.steering.discarded} (boundary insertion does not prove obedience).\n` : ""}${run.status === "paused" ? run.handoff ?? run.handoffLimitation ?? "" : run.output ?? run.error ?? ""${run.contextHealth ? `\n${formatContextHealth(run.contextHealth)}` : ""}` }], details: run, isError: run.status === "failed" };
+      return { content: [{ type: "text", text: `Run ${run.id} · ${run.status} · ${run.activity}\n${run.steering ? `Guidance: accepted ${run.steering.accepted}, consumed ${run.steering.consumed}, pending ${run.steering.pending}, discarded ${run.steering.discarded} (boundary insertion does not prove obedience).\n` : ""}${run.status === "paused" ? run.handoff ?? run.handoffLimitation ?? "" : run.output ?? run.error ?? ""}${run.contextHealth ? `\n${formatContextHealth(run.contextHealth)}` : ""}` }], details: run, isError: run.status === "failed" };
     },
   });
   pi.registerTool({
     name: "subagent_compact", label: "Compact retained subagent", exposure: "model-only",
     description: "Explicitly compact an idle completed or allowance-paused retained conversation. Reports applied, no-op, or failed; preserves historical answers and fixed authority. Does not guarantee reasoning quality.",
     parameters: Type.Object({ ...handleParameters, instructions: Type.Optional(Type.String()) }),
-    async execute(_id, args, signal, _update, ctx) {
-      const run = await runtime.compact(String(args.run), { sessionId: ctx.sessionManager.getSessionId(), models: bridgeModels(ctx.modelRegistry, String(args.run)), instructions: args.instructions, signal });
-      const operation = run.compactions!.at(-1)!;
-      return { content: [{ type: "text", text: `Compaction ${operation.outcome}${operation.error ? `: ${operation.error}` : ""}\n${formatContextHealth(run.contextHealth!)}` }], details: run, isError: operation.outcome === "failed", usage: operation.usage };
+    async execute(toolCallId, args, signal, _update, ctx) {
+      const operationId = runId(ctx.sessionManager.getSessionId(), `compact:${toolCallId}`);
+      const run = await runtime.compact(String(args.run), { sessionId: ctx.sessionManager.getSessionId(), models: bridgeModels(ctx.modelRegistry, String(args.run)), instructions: args.instructions, operationId, signal });
+      const operation = run.compactions!.find(operation => operation.id === operationId)!;
+      const delivered = ctx.sessionManager.getEntries().some(entry => {
+        if (entry.type !== "message" || entry.message.role !== "toolResult" || entry.message.toolName !== "subagent_compact") return false;
+        const details = entry.message.details as unknown as Run | undefined;
+        return details?.compactions?.some(prior => prior.id === operationId);
+      });
+      return { content: [{ type: "text", text: `Compaction ${operation.outcome}${operation.error ? `: ${operation.error}` : ""}\n${formatContextHealth(run.contextHealth!)}` }], details: run, isError: operation.outcome === "failed", usage: delivered ? undefined : operation.usage };
     },
   });
   pi.registerTool({
