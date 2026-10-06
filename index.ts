@@ -13,6 +13,7 @@ import { clean, preview, renderGenericResult, renderGroup, renderRun, type Rende
 import { type DelegationEntry, type DelegationMode, type DelegationPresentation } from "./presentation.ts";
 import { usageForRuns, usageToReport } from "./usage.ts";
 import { createWorktree, removeWorktree } from "./worktrees.ts";
+import { Notifications, NOTIFICATION_TYPE, type Delivery } from "./notifications.ts";
 
 /** The nesting limit for delegated Sub-agents. */
 const MAX_DEPTH = 3;
@@ -87,6 +88,40 @@ export default async function durableSubagent(pi: ExtensionAPI) {
   const maxActive = process.env.PI_SUBAGENT_MAX_ACTIVE === undefined ? 8 : Number(process.env.PI_SUBAGENT_MAX_ACTIVE);
   let runtime = new Runtime(storage, { maxActive });
   let ownerLive = true;
+  let notifications = new Notifications(storage);
+  const deliveredRuns = new Set<string>();
+  const inFlight = new Set<string>();
+  let notificationWork = Promise.resolve();
+  const flushNotifications = async (ctx: ExtensionContext, boundary = false) => {
+    if (!ownerLive || (!boundary && !ctx.isIdle())) return;
+    for (const item of await notifications.pending(ctx.sessionManager.getSessionId())) {
+      if (!ownerLive) continue;
+      const entries = ctx.sessionManager.getBranch();
+      const retained = entries.some(entry => entry.type === "custom_message" && entry.customType === NOTIFICATION_TYPE && (entry.details as Delivery | undefined)?.eventId === item.eventId);
+      if (retained) {
+        await notifications.acknowledge(item.eventId);
+        inFlight.delete(item.eventId);
+        if (item.kind === "succeeded" || item.kind === "failed") {
+          deliveredRuns.add(item.executionId);
+          updateSticky(await runtime.status(item.runId, ctx.sessionManager.getSessionId()), ctx);
+        }
+        continue;
+      }
+      if (inFlight.has(item.eventId)) continue;
+      inFlight.add(item.eventId);
+      pi.sendMessage({ customType: NOTIFICATION_TYPE, content: item.text, display: true, details: notifications.prepare(item, entries) }, { triggerTurn: false });
+      // Idle insertion is synchronous in the installed SDK; its custom-message events
+      // reach host subscribers, not extension handlers. A retained entry is the receipt.
+      if (ctx.sessionManager.getBranch().some(entry => entry.type === "custom_message" && entry.customType === NOTIFICATION_TYPE && (entry.details as Delivery | undefined)?.eventId === item.eventId)) {
+        await notifications.acknowledge(item.eventId);
+        inFlight.delete(item.eventId);
+        if (item.kind === "succeeded" || item.kind === "failed") {
+          deliveredRuns.add(item.executionId);
+          updateSticky(await runtime.status(item.runId, ctx.sessionManager.getSessionId()), ctx);
+        }
+      }
+    }
+  };
   const stickyRuns = new Map<string, Run>();
   const stickyGroups = new Map<string, GroupSnapshot>();
   const stickyState: RendererState = {};
@@ -94,11 +129,19 @@ export default async function durableSubagent(pi: ExtensionAPI) {
   let stickyRedraw: (() => void) | undefined;
   let stickyInstalled = false;
   let stickyDispose: (() => void) | undefined;
-  const updateSticky = (run: Run, ctx: ExtensionContext) => {
+  const updateSticky = (run: Run | undefined, ctx: ExtensionContext) => {
     if (!ownerLive) return;
-    if (run.nonblocking) {
-      if (run.status === "aborted" || run.status === "interrupted") stickyRuns.delete(run.id);
+    if (run?.nonblocking) {
+      if (run.status === "aborted" || run.status === "interrupted" || deliveredRuns.has(`${run.id}:${run.executionAttempt ?? 0}`)) stickyRuns.delete(run.id);
       else stickyRuns.set(run.id, run);
+    }
+    if (run?.groupId && stickyGroups.has(run.groupId)) {
+      const group = stickyGroups.get(run.groupId)!;
+      group.steps = group.steps.map(child => child.id === run.id ? run : child);
+      if (group.presentation.entries.every(entry => entry.phase !== "pending") && group.steps.every(child => child.status === "aborted" || (isTerminal(child) && deliveredRuns.has(`${child.id}:${child.executionAttempt ?? 0}`)))) {
+        stickyGroups.delete(group.id);
+        for (const child of group.steps) stickyRuns.delete(child.id);
+      }
     }
     if (ctx.mode !== "tui") return;
     if (!stickyRuns.size && !stickyGroups.size) {
@@ -139,10 +182,12 @@ export default async function durableSubagent(pi: ExtensionAPI) {
   };
   const updateStickyGroup = (group: GroupSnapshot, ctx: ExtensionContext) => {
     if (!ownerLive || !group.nonblocking) return;
-    if (group.status === "aborted" || group.status === "interrupted") stickyGroups.delete(group.id);
-    else stickyGroups.set(group.id, group);
-    const child = group.steps[0];
-    if (child) updateSticky(child, ctx);
+    const delivered = group.presentation.entries.every(entry => entry.phase !== "pending") && group.steps.every(child => child.status === "aborted" || (isTerminal(child) && deliveredRuns.has(`${child.id}:${child.executionAttempt ?? 0}`)));
+    if (group.status === "aborted" || group.status === "interrupted" || delivered) {
+      stickyGroups.delete(group.id);
+      for (const child of group.steps) stickyRuns.delete(child.id);
+    } else stickyGroups.set(group.id, group);
+    updateSticky(undefined, ctx);
   };
   const approvedResumes = new Set<string>();
   const interruptedRuns = new Set<string>();
@@ -153,6 +198,10 @@ export default async function durableSubagent(pi: ExtensionAPI) {
     if (run.status === "interrupted") interruptedRuns.add(run.id); else interruptedRuns.delete(run.id);
     pendingStatus(ctx);
     updateSticky(run, ctx);
+    if (run.nonblocking && ownerLive) notificationWork = notificationWork.then(async () => {
+      await notifications.observe(run);
+      await flushNotifications(ctx);
+    }).catch(error => { if (ownerLive && ctx.hasUI) ctx.ui.notify(`Sub-agent delivery unavailable: ${String(error)}`, "warning"); });
   };
   // A TUI-only fast clock drives the running icon. It is started and stopped by delegation
   // lifecycle, never from a renderer, so no component owns a timer. One tick redraws every row
@@ -294,7 +343,7 @@ export default async function durableSubagent(pi: ExtensionAPI) {
         groupSnapshot = await runtime.executeGroup(group, {
           optionsForRun: seed => executionOptions(seed, seeds.findIndex(candidate => candidate.id === seed.id)), signal,
           resumeId: request.kind === "resume" ? request.runId : undefined,
-          onUpdate: snapshot => { updateStickyGroup(snapshot, ctx); },
+          onUpdate: snapshot => { updateStickyGroup(snapshot, ctx); if (!group.nonblocking) onUpdate?.({ content: [{ type: "text", text: snapshot.activity }], details: snapshot }); },
         }, group.nonblocking);
         results = groupSnapshot.steps;
         presentation.entries = groupSnapshot.presentation.entries;
@@ -420,7 +469,7 @@ export default async function durableSubagent(pi: ExtensionAPI) {
         const group = operation === "cancel" ? await runtime.cancelGroup(owningGroup!.id, sessionId, stored ? undefined : id)
           : operation === "wait" ? await runtime.waitGroup(id, { sessionId, timeoutSeconds: typeof args.waitSeconds === "number" ? args.waitSeconds : undefined, signal }) : await runtime.groupStatus(id, sessionId);
         updateStickyGroup(group, ctx);
-        return { content: [{ type: "text", text: `Group ${group.id} · ${group.status} · ${group.activity}\n${group.presentation.entries.map(entry => `${entry.runId} · ${entry.phase}${group.errors?.[entry.runId] ? ` · ${group.errors[entry.runId]}` : ""}`).join("\n")}` }], details: group, isError: group.status === "failed" };
+        return { content: [{ type: "text", text: `Group ${group.id} · ${group.status} · ${group.activity}\n${group.presentation.entries.map(entry => `${entry.runId} · ${entry.phase}${group.errors?.[entry.runId] ? ` · ${group.errors[entry.runId]}` : ""}`).join("\n")}` }], details: group, isError: group.status === "failed", usage: usageForRuns(group.steps, ctx.sessionManager.getBranch()) };
       }
       if (owningGroup && owningGroup.presentation.entries.find(entry => entry.runId === id)?.phase !== "run") {
         const entry = owningGroup.presentation.entries.find(entry => entry.runId === id)!;
@@ -430,7 +479,7 @@ export default async function durableSubagent(pi: ExtensionAPI) {
       if (operation === "cancel") await runtime.cancel(id);
       const run = operation === "wait" ? await runtime.wait(id, { sessionId, timeoutSeconds: typeof args.waitSeconds === "number" ? args.waitSeconds : undefined, signal }) : await runtime.status(id, sessionId);
       observeRun(run, ctx);
-      return { content: [{ type: "text", text: `Run ${run.id} · ${run.status} · ${run.activity}\n${run.steering ? `Guidance: accepted ${run.steering.accepted}, consumed ${run.steering.consumed}, pending ${run.steering.pending}, discarded ${run.steering.discarded} (boundary insertion does not prove obedience).\n` : ""}${run.status === "paused" ? run.handoff ?? run.handoffLimitation ?? "" : run.output ?? run.error ?? ""}` }], details: run, isError: run.status === "failed" };
+      return { content: [{ type: "text", text: `Run ${run.id} · ${run.status} · ${run.activity}\n${run.steering ? `Guidance: accepted ${run.steering.accepted}, consumed ${run.steering.consumed}, pending ${run.steering.pending}, discarded ${run.steering.discarded} (boundary insertion does not prove obedience).\n` : ""}${run.status === "paused" ? run.handoff ?? run.handoffLimitation ?? "" : run.output ?? run.error ?? ""}` }], details: run, isError: run.status === "failed", usage: usageToReport(run, ctx.sessionManager.getBranch()) };
     },
   });
   pi.registerTool({
@@ -440,9 +489,28 @@ export default async function durableSubagent(pi: ExtensionAPI) {
     async execute(_id, args, _signal, _update, ctx) {
       const run = await runtime.steer(args.run, ctx.sessionManager.getSessionId(), args.guidance);
       observeRun(run, ctx);
-      return { content: [{ type: "text", text: `Run ${run.id} · guidance ${run.steering?.latest?.state} · accepted ${run.steering?.accepted} · consumed ${run.steering?.consumed} · pending ${run.steering?.pending}. Consumption is boundary insertion, not proof of obedience.` }], details: run };
+      return { content: [{ type: "text", text: `Run ${run.id} · guidance ${run.steering?.latest?.state} · accepted ${run.steering?.accepted} · consumed ${run.steering?.consumed} · pending ${run.steering?.pending}. Consumption is boundary insertion, not proof of obedience.` }], details: run, usage: usageToReport(run, ctx.sessionManager.getBranch()) };
     },
   });
+  pi.on("agent_settled", async (_event, ctx) => {
+    await notificationWork;
+    await flushNotifications(ctx, true);
+  });
+  pi.on("message_end", async (event, ctx) => {
+    const message = event.message;
+    if (!ownerLive || message.role !== "custom" || message.customType !== NOTIFICATION_TYPE) return;
+    const details = message.details as Delivery | undefined;
+    if (!details?.eventId || details.sessionId !== ctx.sessionManager.getSessionId()) return;
+    const receipt = await notifications.acknowledge(details.eventId);
+    if (!receipt) return;
+    inFlight.delete(details.eventId);
+    if (receipt.kind === "succeeded" || receipt.kind === "failed") {
+      deliveredRuns.add(receipt.executionId);
+      const run = await runtime.status(receipt.runId, ctx.sessionManager.getSessionId());
+      if (ownerLive) updateSticky(run, ctx);
+    }
+  });
+  pi.registerMessageRenderer(NOTIFICATION_TYPE, (message, options) => renderGenericResult(typeof message.content === "string" ? message.content : JSON.stringify(message.content), options.expanded));
   // Nested host calls retain their host permission path. Parent effectful calls must not race
   // an execution that owns its workspace; unknown extension tools are conservatively effectful.
   pi.on("tool_call", (event, ctx) => {
@@ -562,6 +630,8 @@ export default async function durableSubagent(pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
     ownerLive = false;
     await runtime.close();
+    await notificationWork; await notifications.close();
+    notifications = new Notifications(storage); inFlight.clear(); deliveredRuns.clear();
     runtime = new Runtime(storage, { maxActive });
     stickyDispose?.(); stickyDispose = undefined; stickyRuns.clear(); stickyGroups.clear(); stickyInstalled = false; stickyRedraw = undefined;
     if (ctx.mode === "tui") ctx.ui.setWidget("durable-subagents", undefined);
@@ -571,9 +641,14 @@ export default async function durableSubagent(pi: ExtensionAPI) {
     interruptedRuns.clear();
     for (const run of runs) {
       if (run.status === "interrupted") interruptedRuns.add(run.id);
-      if (run.nonblocking && run.status === "paused") updateSticky(run, ctx);
+      if (run.nonblocking) {
+        await notifications.observe(run);
+        if (await notifications.deliveredResult(run) && run.status !== "paused") deliveredRuns.add(`${run.id}:${run.executionAttempt ?? 0}`);
+        updateSticky(run, ctx);
+      }
     }
     for (const group of await runtime.listGroups(ctx.sessionManager.getSessionId())) if (group.nonblocking) updateStickyGroup(await runtime.groupStatus(group.id, group.sessionId), ctx);
+    await flushNotifications(ctx);
     pendingStatus(ctx);
     const count = interruptedRuns.size;
     if (count && ctx.hasUI) ctx.ui.notify(`${count} interrupted subagent run${count === 1 ? "" : "s"}. Use /subagents to inspect and explicitly resume.`, "info");
@@ -589,5 +664,6 @@ export default async function durableSubagent(pi: ExtensionAPI) {
     rowRedraws.clear();
     activeDelegations.clear();
     await runtime.close();
+    await notificationWork; await notifications.close(); inFlight.clear();
   });
 }
