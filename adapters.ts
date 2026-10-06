@@ -21,6 +21,12 @@ function bindWorkspaceArguments(name: string, args: Record<string, unknown>, cwd
     bound.command = `(cd -- ${shellQuote(cwd)} && {\n${bound.command}\n})`;
   } else if (name === "read" && typeof bound.path === "string" && !isAbsolute(bound.path)) {
     bound.path = resolve(cwd, bound.path);
+  } else if (["grep", "find", "ls"].includes(name)) {
+    // These Pi built-ins resolve omitted scopes from the host cwd. Make the
+    // effective scope explicit before entering Pi's normal validation/hooks.
+    const scope = bound.path;
+    if (typeof scope !== "string" || !scope) bound.path = cwd;
+    else if (!isAbsolute(scope)) bound.path = resolve(cwd, scope);
   }
   return bound;
 }
@@ -57,8 +63,9 @@ export function bridgeTools(agent: AgentDefinition, ctx: ExtensionToolContext, n
   workspace?: { cwd: string }, builtinTools: ReadonlySet<string> = new Set(),
   declaredWorkspaceIndependent: ReadonlySet<string> = new Set()): ToolRegistration[] {
   const { tools } = selectTools(agent, ctx.tools.map((tool) => tool.name));
+  const boundBuiltinNames = new Set(["bash", "read", "grep", "find", "ls"]);
   const registrations = tools.filter((name) => !workspace ||
-    ((name === "bash" || name === "read") && builtinTools.has(name)) || declaredWorkspaceIndependent.has(name)).map((name) => {
+    (boundBuiltinNames.has(name) && builtinTools.has(name)) || declaredWorkspaceIndependent.has(name)).map((name) => {
     const source = ctx.tools.find((tool) => tool.name === name)!;
     return defineTool({
       name, description: source.description, parameters: source.parameters,
@@ -66,7 +73,7 @@ export function bridgeTools(agent: AgentDefinition, ctx: ExtensionToolContext, n
       replay: "unsafe",
       executionMode: "sequential",
       execute: async (args, api, context) => {
-        const shouldBindBuiltin = workspace && builtinTools.has(name) && (name === "bash" || name === "read");
+        const shouldBindBuiltin = workspace && builtinTools.has(name) && boundBuiltinNames.has(name);
         const result = await ctx.executeTool(name, shouldBindBuiltin ? bindWorkspaceArguments(name, args as Record<string, unknown>, workspace.cwd) : args, {
           signal: context.abortSignal,
           onUpdate: (update) => {
