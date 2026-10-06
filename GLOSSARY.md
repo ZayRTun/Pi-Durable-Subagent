@@ -80,7 +80,7 @@ The retained results and lifecycle records for an Execution and its attempts. Re
 ## Coordination
 
 **Workspace ownership**:
-The exclusive right of admitted work to use a working directory until it completes, safely pauses, is cancelled, or is interrupted. This is coordination, not a shell or filesystem sandbox.
+The exclusive right of admitted work to use a working directory until it completes, safely pauses, is cancelled, or is interrupted. This is coordination, not a shell or filesystem sandbox. While it is held, the parent may still use declared read-only host tools and session-only controls such as Tasks; writes to the owned workspace remain blocked.
 
 **Active capacity**:
 The maximum number of executions a Pi session admits at once. Work that cannot be admitted is reported busy rather than placed in a hidden queue.

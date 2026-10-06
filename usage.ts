@@ -1,18 +1,23 @@
 import type { Usage } from "@earendil-works/pi-ai";
 import type { Run } from "./runtime.ts";
 
-/** Sum the delivered spend of several runs, so a multi-step call reports one usage figure. */
-export function usageForRuns(runs: readonly Run[], entries: readonly { type: string; message?: unknown }[]): Usage | undefined {
-  const parts = runs.map((run) => usageToReport(run, entries)).filter((usage): usage is Usage => Boolean(usage));
-  if (!parts.length) return undefined;
-  return parts.reduce((total, usage) => ({
+/** Sum every token and cost field, including an empty model set as zero usage. */
+export function sumUsage(usages: readonly Usage[]): Usage {
+  return usages.reduce<Usage>((total, usage) => ({
     input: total.input + usage.input, output: total.output + usage.output,
     cacheRead: total.cacheRead + usage.cacheRead, cacheWrite: total.cacheWrite + usage.cacheWrite,
     totalTokens: total.totalTokens + usage.totalTokens,
     cost: { input: total.cost.input + usage.cost.input, output: total.cost.output + usage.cost.output,
       cacheRead: total.cost.cacheRead + usage.cost.cacheRead, cacheWrite: total.cost.cacheWrite + usage.cost.cacheWrite,
       total: total.cost.total + usage.cost.total },
-  }));
+  }), { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } });
+}
+
+/** Sum the delivered spend of several runs, so a multi-step call reports one usage figure. */
+export function usageForRuns(runs: readonly Run[], entries: readonly { type: string; message?: unknown }[]): Usage | undefined {
+  const parts = runs.map((run) => usageToReport(run, entries)).filter((usage): usage is Usage => Boolean(usage));
+  if (!parts.length) return undefined;
+  return sumUsage(parts);
 }
 
 /** Account against delivered results on the active Pi branch, not merely cached metadata. */

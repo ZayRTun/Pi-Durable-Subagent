@@ -584,12 +584,14 @@ export default async function durableSubagent(pi: ExtensionAPI) {
     }
   });
   pi.registerMessageRenderer(NOTIFICATION_TYPE, (message, options) => renderGenericResult(typeof message.content === "string" ? message.content : JSON.stringify(message.content), options.expanded));
-  // Nested host calls retain their host permission path. Parent effectful calls must not race
-  // an execution that owns its workspace; unknown extension tools are conservatively effectful.
+  // Nested host calls retain their host permission path. Parent workspace effects must not race
+  // an execution that owns its workspace; declared reads and session-only controls remain usable.
   pi.on("tool_call", (event, ctx) => {
     if (event.parentToolCallId || !runtime.ownsWorkspace(ctx.cwd)) return;
-    const safe = new Set(["read", "grep", "find", "ls", "subagent", "subagents_list", "subagent_status", "subagent_wait", "subagent_cancel", "subagent_compact", "subagent_followup", "subagent_steer", "worktree_list"]);
-    if (!safe.has(event.toolName)) return { block: true, reason: "Active Sub-agent owns this workspace; wait or cancel before parent writes. Use isolated worktrees for concurrent writers." };
+    const safe = new Set(["read", "grep", "find", "ls", "fffind", "ffgrep", "get_tasks", "set_tasks", "subagent", "subagents_list", "subagent_status", "subagent_wait", "subagent_cancel", "subagent_compact", "subagent_followup", "subagent_steer", "worktree_list"]);
+    const declaredRead = pi.getAllTools().find((tool) => tool.name === event.toolName)?.annotations?.readOnlyHint === true;
+    if (declaredRead || safe.has(event.toolName)) return;
+    return { block: true, reason: "Active Sub-agent owns this workspace; wait or cancel before parent writes. Use isolated worktrees for concurrent writers." };
   });
 
   pi.registerTool({

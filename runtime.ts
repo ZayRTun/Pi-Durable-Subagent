@@ -11,6 +11,7 @@ import { inspectContext, validateReuseDecision, formatContextHealth, type Contex
 import type { AgentDefinition } from "./agents.ts";
 import { subagentInstructions } from "./prompt.ts";
 import { collectToolArguments, describeActivity, reconcileToolDiagnostics, toolActivity } from "./activity.ts";
+import { sumUsage } from "./usage.ts";
 
 export type RunStatus = "running" | "succeeded" | "failed" | "aborted" | "interrupted" | "pausing" | "preparing-handoff" | "paused";
 /** Paused work is unfinished and safely inactive; Interrupted requires explicit recovery. */
@@ -122,14 +123,7 @@ async function save(file: string, run: Run) {
 }
 
 function modelUsage(models: Record<string, Usage>): Usage {
-  return Object.values(models).reduce<Usage>((total, usage) => ({
-    input: total.input + usage.input, output: total.output + usage.output,
-    cacheRead: total.cacheRead + usage.cacheRead, cacheWrite: total.cacheWrite + usage.cacheWrite,
-    totalTokens: total.totalTokens + usage.totalTokens,
-    cost: { input: total.cost.input + usage.cost.input, output: total.cost.output + usage.cost.output,
-      cacheRead: total.cost.cacheRead + usage.cost.cacheRead, cacheWrite: total.cost.cacheWrite + usage.cost.cacheWrite,
-      total: total.cost.total + usage.cost.total },
-  }), { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } });
+  return sumUsage(Object.values(models));
 }
 
 /** Compaction has its own accounting identity, separate from ordinary execution spend. */
