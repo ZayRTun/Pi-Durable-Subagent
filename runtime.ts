@@ -274,6 +274,7 @@ export class Runtime {
         group.seeds[index] = child;
       }
       const childOptions = await options.optionsForRun(child);
+      if (group.cancelled || controller.signal.aborted || this.closing || group.presentation.entries[index].phase === "not-run") return;
       try {
         const result = await this.execute(child, { ...childOptions, signal: controller.signal,
           onAdmitted: run => { entry.phase = "run"; void persist(); admit(); childOptions.onAdmitted?.(run); },
@@ -324,7 +325,7 @@ export class Runtime {
     for (const [index, seed] of group.seeds.entries()) {
       if (childId && seed.id !== childId) continue;
       const entry = group.presentation.entries[index];
-      if (entry.phase === "pending") entry.phase = "not-run";
+      if (entry.phase === "pending") { entry.phase = "not-run"; if (this.active.has(seed.id)) await this.cancel(seed.id); }
       else if (entry.phase === "run") await this.cancel(seed.id);
     }
     // A cancelled dependency cannot advance an ordered/chain graph.
@@ -713,9 +714,9 @@ export class Runtime {
   async close(): Promise<void> {
     this.closing = true;
     const groups = [...this.groups.values()];
-    groups.forEach(group => group.controller.abort("shutdown"));
     const active = [...this.active.values()];
     active.forEach((run) => run.stop());
+    groups.forEach(group => group.controller.abort("shutdown"));
     await Promise.allSettled(active.map((run) => run.done));
     await Promise.allSettled(groups.map(group => group.done));
   }

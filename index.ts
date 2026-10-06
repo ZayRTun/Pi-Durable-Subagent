@@ -469,6 +469,12 @@ export default async function durableSubagent(pi: ExtensionAPI) {
         const group = operation === "cancel" ? await runtime.cancelGroup(owningGroup!.id, sessionId, stored ? undefined : id)
           : operation === "wait" ? await runtime.waitGroup(id, { sessionId, timeoutSeconds: typeof args.waitSeconds === "number" ? args.waitSeconds : undefined, signal }) : await runtime.groupStatus(id, sessionId);
         updateStickyGroup(group, ctx);
+        if (!stored) {
+          const child = group.steps.find(run => run.id === id);
+          if (child) { observeRun(child, ctx); return { content: [{ type: "text", text: `Run ${child.id} · ${child.status} · ${child.activity}` }], details: child, usage: usageToReport(child, ctx.sessionManager.getBranch()) }; }
+          const entry = group.presentation.entries.find(entry => entry.runId === id)!;
+          return { content: [{ type: "text", text: `Child ${id} · Not run` }], details: { id, groupId: group.id, phase: entry.phase, status: entry.phase } };
+        }
         return { content: [{ type: "text", text: `Group ${group.id} · ${group.status} · ${group.activity}\n${group.presentation.entries.map(entry => `${entry.runId} · ${entry.phase}${group.errors?.[entry.runId] ? ` · ${group.errors[entry.runId]}` : ""}`).join("\n")}` }], details: group, isError: group.status === "failed", usage: usageForRuns(group.steps, ctx.sessionManager.getBranch()) };
       }
       if (owningGroup && owningGroup.presentation.entries.find(entry => entry.runId === id)?.phase !== "run") {

@@ -26,14 +26,20 @@ export default function tuiFixture(pi: ExtensionAPI) {
         const id = start?.role === "toolResult" ? (start.details as { id: string }).id : "";
         return fauxAssistantMessage([fauxToolCall("subagent_cancel", { run: id }, { id: "cancel-background" })], { stopReason: "toolUse" });
       }
-      const items = ["scout", "worker", "reviewer"].map((agent) => ({ agent, task: `Inspect the retry policy and preserve the original error on exhaustion. Verify the timeout behavior and report the relevant project findings for ${agent}.` }));
+      if (task.includes("continue group")) {
+        const start = context.messages.find(message => message.role === "toolResult" && message.toolName === "subagent");
+        const id = start?.role === "toolResult" ? (start.details as { steps: { id: string }[] }).steps[0].id : "";
+        return fauxAssistantMessage([fauxToolCall("subagent", { resume: id, reassessment: "Finish remaining native fixture work", timeoutMinutes: null }, { id: "continue-group" })], { stopReason: "toolUse" });
+      }
+      const items = ["scout", "worker", "reviewer"].map((agent) => ({ agent, ...(task.includes("group") ? { timeoutMinutes: agent === "scout" ? 1 : null } : {}), task: `Inspect the retry policy and preserve the original error on exhaustion. Verify the timeout behavior and report the relevant project findings for ${agent}.${task.includes("group") ? agent === "worker" ? " Fast success sibling." : agent === "reviewer" ? " Fast failure sibling." : " Held allowance sibling." : ""}` }));
       const args = task.includes("parallel") ? { tasks: items, worktree: true } : task.includes("chain") ? { chain: items } : task.includes("ordered") ? { tasks: items } : { agent: "worker", task: "Inspect the retry policy and preserve the original error on exhaustion. Verify the timeout behavior and report the relevant project findings. " + task };
       return fauxAssistantMessage([fauxToolCall("subagent", { ...args, ...(task.includes("supervised") ? { nonblocking: true } : {}), ...(task.includes("pause") ? { timeoutMinutes: 1 } : {}) }, { id: `preview-${faux.state.callCount}` })], { stopReason: "toolUse" });
     }
+    const original = JSON.stringify(context.messages.find(message => message.role === "user"));
     const completed = context.messages.filter((message) => message.role === "toolResult").length;
     if (completed < 3) return fauxAssistantMessage([fauxToolCall("tui_read", { path: join(directory, `sample-${completed}.txt`) }, { id: `read-${completed}` })], { stopReason: "toolUse" });
-    if (completed === 3) return fauxAssistantMessage([fauxToolCall("tui_wait", { command: "npm test -- retry-policy" }, { id: "test-policy" })], { stopReason: "toolUse" });
-    if (task.includes("failure")) return fauxAssistantMessage([], { stopReason: "error", errorMessage: "Synthetic retry-policy verification failure." });
+    if (completed === 3) return fauxAssistantMessage([fauxToolCall("tui_wait", { command: "npm test -- retry-policy" + (original.includes("Fast success sibling") ? " fast success sibling" : original.includes("Fast failure sibling") ? " fast failure sibling" : "") }, { id: "test-policy" })], { stopReason: "toolUse" });
+    if (task.includes("failure") || original.includes("Fast failure sibling")) return fauxAssistantMessage([], { stopReason: "error", errorMessage: "Synthetic retry-policy verification failure." });
     return fauxAssistantMessage("## Changes\n\nChecked retry exhaustion and timeout behavior in the disposable project.\n\n- The original error is preserved when the retry budget is exhausted. This long bullet tests whether its continuation aligns under the bullet text without changing the tree's content column.\n- Timeout behavior remains unchanged.\n\n## Verification\n\nThree real fixture files were read. The waiting tool is synthetic; no npm tests or network requests were executed.\n\n```ts\nconst exhausted = attempts >= retryLimit;\n```\n");
   }));
   pi.registerProvider(faux.provider);
@@ -52,7 +58,7 @@ export default function tuiFixture(pi: ExtensionAPI) {
     async execute(_id, _args, signal) {
       emit("wait", {});
       await new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(() => { signal?.removeEventListener("abort", abort); resolve(); }, process.env.DURABLE_TUI_SUPERVISED === "1" ? 9000 : 2500);
+        const timer = setTimeout(() => { signal?.removeEventListener("abort", abort); resolve(); }, process.env.DURABLE_TUI_SUPERVISED === "1" && !_args.command.includes("fast") ? 9000 : 2500);
         const abort = () => { clearTimeout(timer); signal?.removeEventListener("abort", abort); reject(new Error("Synthetic verification cancelled.")); };
         signal?.addEventListener("abort", abort, { once: true });
         if (signal?.aborted) abort();
