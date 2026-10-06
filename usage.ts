@@ -19,12 +19,28 @@ export function usageForRuns(runs: readonly Run[], entries: readonly { type: str
 export function usageToReport(run: Run, entries: readonly { type: string; message?: unknown }[]): Usage | undefined {
   if (!run.usage) return undefined;
   let accounted: Usage | undefined;
+  const account = (usage: Usage | undefined) => {
+    if (!usage) return;
+    if (!accounted) { accounted = usage; return; }
+    // Retained notifications/results may arrive in a different order from recovery.
+    // A historical cumulative snapshot must never lower an already reported baseline.
+    const max = Math.max;
+    accounted = { input: max(accounted.input, usage.input), output: max(accounted.output, usage.output),
+      cacheRead: max(accounted.cacheRead, usage.cacheRead), cacheWrite: max(accounted.cacheWrite, usage.cacheWrite),
+      totalTokens: max(accounted.totalTokens, usage.totalTokens),
+      cost: { input: max(accounted.cost.input, usage.cost.input), output: max(accounted.cost.output, usage.cost.output),
+        cacheRead: max(accounted.cost.cacheRead, usage.cost.cacheRead), cacheWrite: max(accounted.cost.cacheWrite, usage.cost.cacheWrite),
+        total: max(accounted.cost.total, usage.cost.total) } };
+  };
   for (const entry of entries) {
     if (entry.type !== "message") continue;
-    const message = entry.message as { role?: string; toolName?: string; details?: { id?: string; usage?: Usage; steps?: { id?: string; usage?: Usage }[] } } | undefined;
-    if (message?.role === "toolResult" && message.toolName === "subagent") {
+    const message = entry.message as { role?: string; toolName?: string; usage?: Usage; details?: { id?: string; nonblocking?: boolean; usage?: Usage; steps?: { id?: string; usage?: Usage }[] } } | undefined;
+    if (message?.role === "toolResult" && ["subagent", "subagent_status", "subagent_wait", "subagent_cancel", "subagent_steer"].includes(message.toolName ?? "")) {
       const delivered = message.details?.id === run.id ? message.details : message.details?.steps?.find((step) => step.id === run.id);
-      accounted = delivered?.usage ?? accounted;
+      // A detached start returns identity/progress, never a usage report, even if
+      // a very fast execution has already accrued spend before the handle is published.
+      if (message.toolName === "subagent" && delivered && "nonblocking" in delivered && delivered.nonblocking && !message.usage) continue;
+      account(delivered?.usage);
     }
   }
   const delta = (a: number, b = 0) => Math.max(0, a - b);
