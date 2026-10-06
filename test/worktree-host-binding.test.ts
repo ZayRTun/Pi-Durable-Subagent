@@ -123,7 +123,7 @@ test("a real Pi delegated host shell and relative reads use the committed worktr
     assert.match(shell.input.command as string, /^\(cd -- '.*-worktrees\/.*' && \{/);
     const reads = permissionInputs.filter((entry) => entry.name === "read");
     assert.equal(reads.length, 6);
-    assert.ok(reads.slice(0, 3).every((entry) => typeof entry.input.path === "string" && (entry.input.path as string).includes("-worktrees/") && !(entry.input.path as string).startsWith(repo)), JSON.stringify(permissionInputs));
+    assert.ok(reads.slice(0, 3).every((entry) => typeof entry.input.path === "string" && (entry.input.path as string).startsWith(worktree + "/") && !(entry.input.path as string).startsWith(repo + "/")), JSON.stringify(permissionInputs));
     assert.equal(reads[1].input.path, join(worktree, "tracked.txt"), "@ paths use Pi's strip-prefix rule before checkout binding");
     assert.equal(reads[2].input.path, join(worktree, "unicode space.txt"), "Pi-normalized Unicode spaces remain checkout-relative");
     assert.equal(reads[3].input.path, join(homedir(), ".pi-durable-subagent-path-probe-missing"), "tilde paths expand to the host home directory");

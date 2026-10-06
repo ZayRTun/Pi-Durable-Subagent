@@ -134,7 +134,7 @@ test("real Pi delegated discovery and search tools use the assigned checkout for
     for (const { input } of isolatedInputs) {
       const path = input.path;
       assert.equal(typeof path, "string");
-      assert.ok((path as string).includes("-worktrees/") && !(path as string).startsWith(repo), JSON.stringify(hostInputs));
+      assert.ok((path as string).includes("-worktrees/") && !(path as string).startsWith(repo + "/"), JSON.stringify(hostInputs));
     }
     assert.equal(await readFile(join(repo, "tracked.txt"), "utf8"), "PARENT_MODIFIED_NEEDLE\n");
     assert.equal(await readFile(join(repo, "parent-only.txt"), "utf8"), "PARENT_ONLY_NEEDLE\n");
