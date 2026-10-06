@@ -714,6 +714,25 @@ export class Runtime {
       const message = entry?.model?.[0] as AssistantMessage | undefined;
       const answer = message?.content.flatMap((part) => part.type === "text" ? [part.text] : []).join("") ?? "";
       if (message?.stopReason === "error" || message?.stopReason === "aborted") throw new Error(message.errorMessage ?? "Model did not complete");
+      if (run.worktree && run.unavailable.length) {
+        const unavailable = new Set(run.unavailable);
+        const attempted = new Set<string>();
+        let attemptCursor: Parameters<typeof root.entries>[2];
+        do {
+          const page = await root.entries({}, 200, attemptCursor, context);
+          for (const raw of page.items.flatMap(item => item.model ?? [])) {
+            if (raw.role !== "assistant") continue;
+            for (const part of raw.content) {
+              if (part.type === "toolCall" && !historicalCalls.has(part.id) && unavailable.has(part.name)) attempted.add(part.name);
+            }
+          }
+          attemptCursor = page.next;
+        } while (attemptCursor);
+        if (attempted.size) {
+          run.output = undefined;
+          throw new Error(`Task blocked: attempted unavailable workspace capability ${[...attempted].sort().join(", ")}. The checkout binding was not confirmed, so those tools were not run; this Execution cannot be reported as complete.`);
+        }
+      }
       if (pauseRequested) {
         run.handoff = answer;
         if (!answer.trim()) run.handoffLimitation = "The handoff model returned no text; retained progress remains inspectable.";

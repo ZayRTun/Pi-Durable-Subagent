@@ -8,7 +8,7 @@ import { getAgentDir, type ExtensionAPI, type ExtensionContext, type ExtensionTo
 import { Container, MouseRegion, getKeybindings, matchesKey, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import { loadAgents } from "./agents.ts";
 import { resolveAgentDirectories } from "./definition-config.ts";
-import { bridgeModels, bridgeTools, WORKSPACE_INDEPENDENT_TOOL_INSTRUCTION } from "./adapters.ts";
+import { bridgeModels, bridgeTools, coreBuiltinToolNames, WORKSPACE_INDEPENDENT_TOOL_INSTRUCTION } from "./adapters.ts";
 import { parseDelegationRequest, MAX_STEPS } from "./request.ts";
 import { loadModelConfig, resolveModel, writeModelConfig } from "./models.ts";
 import { Runtime, isTerminal, runId, type Run, type Group, type GroupSnapshot } from "./runtime.ts";
@@ -370,7 +370,7 @@ export default async function durableSubagent(pi: ExtensionAPI) {
         recoveryApproved, continuation: request.kind === "resume" && request.runId === seed.id ? request.continuation : undefined,
         models: bridgeModels(ctx.modelRegistry, seed.conversationId ?? seed.id),
         tools: bridgeTools(seed.agent, ctx, nested, seed.worktree ? { cwd: seed.cwd } : undefined,
-          new Set(pi.getAllTools().filter(tool => tool.sourceInfo.path.startsWith("builtin:")).map(tool => tool.name)),
+          coreBuiltinToolNames(pi.getAllTools()),
           new Set(pi.getAllTools().filter(tool => tool.namespace?.instructions?.trim() === WORKSPACE_INDEPENDENT_TOOL_INSTRUCTION).map(tool => tool.name))),
         signal, nested: options.nested,
         onUpdate: (run: Run) => {
@@ -406,7 +406,6 @@ export default async function durableSubagent(pi: ExtensionAPI) {
           onUpdate: snapshot => { updateStickyGroup(snapshot, ctx); if (!group.nonblocking) onUpdate?.({ content: [{ type: "text", text: snapshot.activity }], details: snapshot }); },
         }, group.nonblocking);
         results = groupSnapshot.steps;
-        presentation.entries = groupSnapshot.presentation.entries;
         if (group.nonblocking) return { content: [{ type: "text", text: `Nonblocking ${groupSummary(groupSnapshot)}\nInspect, wait or cancel with the group handle; child handles target individual steps. Pending Ordered/Chain dependencies start only after successful final answers.` }], details: groupSnapshot, isError: groupSnapshot.status === "failed", usage: undefined };
       } else {
         if (!signal?.aborted) results.push(await executeSeed(seeds[0], 0));
@@ -582,7 +581,7 @@ export default async function durableSubagent(pi: ExtensionAPI) {
       const run = await runtime.followUp(args.run, { executionId: id, sessionId, task: args.task, reuse: args.reuse, fresh: args.fresh, nonblocking: args.nonblocking }, {
         models: bridgeModels(ctx.modelRegistry, args.fresh ? id : previous.conversationId ?? previous.id),
         tools: bridgeTools(previous.agent, ctx, nested, previous.worktree ? { cwd: previous.cwd } : undefined,
-          new Set(pi.getAllTools().filter(tool => tool.sourceInfo.path.startsWith("builtin:")).map(tool => tool.name)),
+          coreBuiltinToolNames(pi.getAllTools()),
           new Set(pi.getAllTools().filter(tool => tool.namespace?.instructions?.trim() === WORKSPACE_INDEPENDENT_TOOL_INSTRUCTION).map(tool => tool.name))),
         signal, onUpdate: update,
       });

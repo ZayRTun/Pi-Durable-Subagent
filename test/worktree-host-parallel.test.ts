@@ -10,6 +10,7 @@ import { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager
 import { fauxProvider, fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { WORKSPACE_INDEPENDENT_TOOL_INSTRUCTION } from "../adapters.ts";
 import extension from "../index.ts";
+import { cleanupWorktreeHostFixture, initializeWorktreeHostRepo } from "./fixtures/worktree-host.ts";
 
 const run = promisify(execFile);
 
@@ -38,9 +39,7 @@ test("parallel worktree children keep real host shell, read, and write effects i
     await writeFile(join(harness, "scout.md"), [
       "---", "name: scout", "description: Parallel workspace fixture", "tools: [bash, read, write, barrier]", "---", "Use the barrier, then verify shell and file operations in your assigned checkout.", "",
     ].join("\n"));
-    await run("git", ["init", "-q", repo]);
-    await run("git", ["-C", repo, "config", "user.email", "test@example.invalid"]);
-    await run("git", ["-C", repo, "config", "user.name", "Test"]);
+    await initializeWorktreeHostRepo(repo);
     await writeFile(join(repo, "shared.txt"), "committed shared value\n");
     await writeFile(join(repo, "same-name.txt"), "committed parent value\n");
     await run("git", ["-C", repo, "add", "shared.txt", "same-name.txt"]);
@@ -158,9 +157,10 @@ test("parallel worktree children keep real host shell, read, and write effects i
     const waited = session.messages.findLast((message) => message.role === "toolResult" && message.toolName === "subagent_wait");
     assert.ok(waited && waited.role === "toolResult");
     assert.equal(waited.isError, false, JSON.stringify({ content: waited.content, details: waited.details }));
-    const completed = waited.details as { status: string; steps: { status: string; cwd: string }[] } | undefined;
+    const completed = waited.details as { status: string; steps: { status: string; cwd: string }[]; presentation: { entries: { phase: string }[] } } | undefined;
     assert.equal(completed?.status, "succeeded", JSON.stringify(waited.details));
     assert.deepEqual(completed?.steps.map((step) => step.status), ["succeeded", "succeeded"]);
+    assert.deepEqual(completed?.presentation.entries.map((entry) => entry.phase), ["run", "run"], "both admitted children stay represented as runs after concurrent completion");
     assert.equal(new Set(completed?.steps.map((step) => step.cwd)).size, 2, "each child retains a distinct actual checkout");
     const [red, blue] = completed!.steps;
     const redPath = childShellResults.RED.match(/cwd=(.+)/)?.[1];
@@ -187,10 +187,6 @@ test("parallel worktree children keep real host shell, read, and write effects i
     if (old.agents === undefined) delete process.env.PI_SUBAGENT_AGENTS; else process.env.PI_SUBAGENT_AGENTS = old.agents;
     if (old.storage === undefined) delete process.env.PI_SUBAGENT_STORAGE; else process.env.PI_SUBAGENT_STORAGE = old.storage;
     try { session?.dispose?.(); } catch {}
-    try { await run("git", ["-C", repo, "worktree", "prune"]); } catch {}
-    await rm(worktrees, { recursive: true, force: true });
-    await rm(store, { recursive: true, force: true });
-    await rm(harness, { recursive: true, force: true });
-    await rm(repo, { recursive: true, force: true });
+    await cleanupWorktreeHostFixture({ repo, harness, store, worktrees });
   }
 });

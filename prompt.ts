@@ -11,5 +11,5 @@ Start with the named paths; read them directly before considering a search. If d
 Keep context small: for a long file read only the region you need and return for more if required; prefer narrow paths and bounded output over whole-file or whole-tree dumps. Tool output is charged to this task's budget.
 This is not a filesystem sandbox. Tools run with the invoking Pi process's permissions; follow the task scope and permission hooks.
 Available tools: ${available.join(", ") || "none"}.
-Unavailable declared tools: ${unavailable.join(", ") || "none"}. Do not assume unavailable capabilities. Report verification gaps and capability limitations honestly.`;
+Unavailable declared tools: ${unavailable.join(", ") || "none"}. This is the effective loadout; an unavailable workspace-sensitive tool has no confirmed safe binding to this checkout and will not be invoked. If the task needs one, stop and report a blocker naming the capability; do not claim completion or substitute an unscoped search. If you attempt an unavailable tool, the parent will report the execution as blocked even if you later provide a success claim.`;
 }
