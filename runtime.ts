@@ -3,7 +3,7 @@ import { mkdir, readFile, readdir, realpath, rename, rmdir, writeFile } from "no
 import { join, resolve } from "node:path";
 import { BACKGROUND_CONTEXT, withAbortSignal } from "@earendil-works/chord/context";
 import { createModels, type Models, type Usage, type AssistantMessage } from "@earendil-works/pi-ai";
-import { AssistantEntry, createRegistry, defineExtension, Harness, type LiveState, type UsageState, type ToolRegistration } from "@earendil-works/pi-durable";
+import { AssistantEntry, UserEntry, createRegistry, defineExtension, Harness, type LiveState, type UsageState, type ToolRegistration } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import lockfile from "proper-lockfile";
 import { inspectContext, type ContextHealth } from "./context-health.ts";
@@ -54,6 +54,8 @@ export interface Run {
   /** Unique tool calls across this run's history, reconstructed from durable entries on recovery. */
   toolCount?: number;
   activityLog?: { callId: string; name: string; status: string; output?: string; summary?: string; uncertain?: boolean; failed?: boolean }[];
+  /** Boundary insertion is consumption, never proof that guidance was obeyed. */
+  steering?: { accepted: number; consumed: number; discarded: number; pending: number; latest?: { id: string; state: "accepted" | "consumed" | "discarded"; acceptedAt: number; consumedAt?: number } };
   error?: string;
   usage?: Usage;
   contextHealth?: ContextHealth;
@@ -117,6 +119,7 @@ export class Runtime {
   private live = new Map<string, Run>();
   private contextReaders = new Map<string, () => Promise<ContextHealth>>();
   private managing = new Map<string, { stop: () => void; done: Promise<Run>; cwd: string; sessionId: string }>();
+  private steering = new Map<string, (guidance: string) => Promise<Run>>();
   private closing = false;
   readonly maxActive: number;
   constructor(directory: string, options: { maxActive?: number } = {}) {
@@ -130,6 +133,13 @@ export class Runtime {
     const run = this.live.get(id) ?? await this.read(id);
     if (run.sessionId !== sessionId) throw new Error("Run belongs to another Pi session");
     return { ...run, ...(!terminal(run) && run.status !== "paused" && !this.active.has(id) ? { status: "interrupted" as const, activity: "Awaiting explicit resume" } : {}) };
+  }
+  async steer(id: string, sessionId: string, guidance: string): Promise<Run> {
+    const run = await this.status(id, sessionId);
+    if (!guidance.trim() || guidance.length > 8000) throw new Error("Guidance must contain 1–8000 characters");
+    const send = this.steering.get(id);
+    if (this.closing || run.status !== "running" || !send) throw new Error("Steering requires active work; use follow-up for a completed child, or explicit continuation/recovery for stopped work");
+    return send(guidance);
   }
   /** Returns only after admission/persistence; retains an independent controller until completion. */
   async start(seed: Run, options: ExecuteOptions): Promise<Run> {
@@ -238,6 +248,14 @@ export class Runtime {
     let priorToolCount = 0;
     const abort = () => controller.abort("cancelled");
     let run = seed;
+    let steeringWrites = Promise.resolve();
+    let steeringAdmissions = Promise.resolve();
+    let acceptingGuidance = true;
+    const pendingGuidance = new Map<string, { abort: () => Promise<unknown> }>();
+    const persistSteering = () => {
+      steeringWrites = steeringWrites.then(() => save(file, run));
+      return steeringWrites;
+    };
     const attemptStart = Date.now();
     const file = join(directory, "run.json");
     try {
@@ -352,14 +370,25 @@ export class Runtime {
         }
       };
       publishPhase = publish;
+      const consumeGuidance = () => {
+        for (const [id] of pendingGuidance) {
+          const inserted = view.value.entries.some(entry => entry.model?.some(message => message.role === "user" && typeof message.content === "string" && message.content.startsWith(`[Parent guidance ${id}]`)));
+          if (!inserted) continue;
+          pendingGuidance.delete(id);
+          const summary = run.steering!;
+          summary.consumed++; summary.pending--;
+          if (summary.latest?.id === id) summary.latest = { ...summary.latest, state: "consumed", consumedAt: Date.now() };
+          void persistSteering().catch(() => controller.abort("steering persistence failed"));
+        }
+      };
+      const consumeOff = view.subscribe(consumeGuidance);
       finishActivity = () => reconcileToolDiagnostics(run.activityLog ?? [], view.value.entries.slice(-60));
       const off = view.subscribe(publish);
       // Active execution keeps the host alive even when a tool awaits only a Promise and there
       // is no deadline timer. This only publishes progress and is cleared on completion/shutdown.
       progressTimer = setInterval(publish, 1000);
-      unsubscribe = () => { off(); view.dispose(); };
+      unsubscribe = () => { off(); consumeOff(); view.dispose(); };
       await save(file, run);
-      options.onAdmitted?.({ ...run });
       options.onUpdate?.({ ...run, updatedAt: attemptStart, ...(run.activityLog ? { activityLog: run.activityLog.map((call) => ({ ...call })) } : {}) });
       options.signal?.addEventListener("abort", abort, { once: true });
       if (options.signal?.aborted) abort();
@@ -384,7 +413,30 @@ export class Runtime {
       const waitContext = withAbortSignal(controller.signal, context);
       if (controller.signal.aborted) throw new Error(String(controller.signal.reason));
       const submission = await root.submit({ type: "input", content: continuing ? `Continue the original task within its original scope. Parent reassessment: ${continuing.reassessment}. Use retained progress; do not repeat completed side effects.` : failedRecovery || handoffRecovery ? "The operator approved recovery of the original task. Review retained history and the previous failure; continue remaining work without blindly replaying the unanswered submission or completed side effects." : run.task, requestId: attempt ? `continuation:${run.id}:${attempt}` : `delegation:${run.id}` }, waitContext);
+      this.steering.set(run.id, guidance => {
+        const admission = steeringAdmissions.then(async () => {
+          if (!acceptingGuidance || controller.signal.aborted || pauseRequested || run.status !== "running" || (await submission.status(context)).status === "done") throw new Error("Steering requires active work; use follow-up for a completed child");
+          if (pendingGuidance.size >= 8) throw new Error("Steering queue is full; wait for a safe boundary");
+          const id = randomUUID();
+          // Passive writes enter at a tool/turn boundary and cannot start another task if the
+          // original submission settles between the active check and admission.
+          const queued = await root.submit({ type: "write", entry: { kind: UserEntry.kind, model: [{ role: "user", content: `[Parent guidance ${id}] Guidance for the original task only; preserve its scope and fixed authority.\n${guidance}`, timestamp: Date.now() }] }, requestId: `steering:${run.id}:${id}` }, context);
+          pendingGuidance.set(id, { abort: () => queued.abort(context) });
+          const summary = run.steering ??= { accepted: 0, consumed: 0, discarded: 0, pending: 0 };
+          summary.accepted++; summary.pending++; summary.latest = { id, state: "accepted", acceptedAt: Date.now() };
+          consumeGuidance();
+          await persistSteering(); publish();
+          return { ...run, steering: { ...summary, latest: summary.latest ? { ...summary.latest } : undefined } };
+        });
+        steeringAdmissions = admission.then(() => {}, () => {});
+        return admission;
+      });
+      options.onAdmitted?.({ ...run });
       let settled = await submission.wait(waitContext);
+      acceptingGuidance = false;
+      await steeringAdmissions;
+      this.steering.delete(run.id);
+      consumeGuidance();
       // An answer settled inside the work allowance is completion; metadata/ledger commits
       // after this boundary must not turn it into an unrequested pause.
       if (!pauseRequested) { clearTimeout(timer); clearTimeout(checkpointTimer); }
@@ -449,6 +501,19 @@ export class Runtime {
         await root.abort(context);
       }
     } finally {
+      acceptingGuidance = false;
+      this.steering.delete(run.id);
+      await steeringAdmissions;
+      // Withdraw queued input before closing the harness, so explicit recovery cannot replay it.
+      for (const [id, queued] of pendingGuidance) {
+        await queued.abort().catch(() => {});
+        if (pendingGuidance.has(id) && run.steering) {
+          run.steering.pending--; run.steering.discarded++;
+          if (run.steering.latest?.id === id) run.steering.latest = { ...run.steering.latest, state: "discarded" };
+        }
+      }
+      pendingGuidance.clear();
+      await steeringWrites.catch(() => {});
       clearTimeout(timer);
       clearTimeout(checkpointTimer);
       clearInterval(progressTimer);
