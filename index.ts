@@ -5,7 +5,7 @@ import { getAgentDir, type ExtensionAPI, type ExtensionContext, type ExtensionTo
 import { Container, MouseRegion, getKeybindings, matchesKey, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import { loadAgents } from "./agents.ts";
 import { resolveAgentDirectories } from "./definition-config.ts";
-import { bridgeModels, bridgeTools } from "./adapters.ts";
+import { bridgeModels, bridgeTools, WORKSPACE_INDEPENDENT_TOOL_INSTRUCTION } from "./adapters.ts";
 import { parseDelegationRequest, MAX_STEPS } from "./request.ts";
 import { loadModelConfig, resolveModel, writeModelConfig } from "./models.ts";
 import { Runtime, isTerminal, runId, type Run, type Group, type GroupSnapshot } from "./runtime.ts";
@@ -340,7 +340,11 @@ export default async function durableSubagent(pi: ExtensionAPI) {
       } : undefined;
       return {
         recoveryApproved, continuation: request.kind === "resume" && request.runId === seed.id ? request.continuation : undefined,
-        models: bridgeModels(ctx.modelRegistry, seed.conversationId ?? seed.id), tools: bridgeTools(seed.agent, ctx, nested), signal, nested: options.nested,
+        models: bridgeModels(ctx.modelRegistry, seed.conversationId ?? seed.id),
+        tools: bridgeTools(seed.agent, ctx, nested, seed.worktree ? { cwd: seed.cwd } : undefined,
+          new Set(pi.getAllTools().filter(tool => tool.sourceInfo.path.startsWith("builtin:")).map(tool => tool.name)),
+          new Set(pi.getAllTools().filter(tool => tool.namespace?.instructions?.trim() === WORKSPACE_INDEPENDENT_TOOL_INSTRUCTION).map(tool => tool.name))),
+        signal, nested: options.nested,
         onUpdate: (run: Run) => {
           observeRun(run, ctx);
           liveById.set(run.id, run);

@@ -2,10 +2,28 @@
 import { createModels, type Models } from "@earendil-works/pi-ai";
 import type { ExtensionToolContext, ModelRegistry } from "@earendil-works/pi-coding-agent";
 import { defineTool, type ToolRegistration } from "@earendil-works/pi-durable";
+import { isAbsolute, resolve } from "node:path";
 import type { AgentDefinition } from "./agents.ts";
 import { selectTools } from "./agents.ts";
 
 type ToolDefinition = Parameters<typeof defineTool>[0];
+
+/** Exact namespace instruction that explicitly opts an extension tool into worktree use. */
+export const WORKSPACE_INDEPENDENT_TOOL_INSTRUCTION = "pi-durable-subagent: workspace-independent";
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function bindWorkspaceArguments(name: string, args: Record<string, unknown>, cwd: string): Record<string, unknown> {
+  const bound = { ...args };
+  if (name === "bash" && typeof bound.command === "string") {
+    bound.command = `(cd -- ${shellQuote(cwd)} && {\n${bound.command}\n})`;
+  } else if (name === "read" && typeof bound.path === "string" && !isAbsolute(bound.path)) {
+    bound.path = resolve(cwd, bound.path);
+  }
+  return bound;
+}
 
 export interface NestedResult {
   content: { type: "text"; text: string }[];
@@ -35,9 +53,12 @@ export function bridgeModels(registry: Pick<ModelRegistry, "find" | "getAll" | "
  * retains the context only until the awaited session shutdown; every call supplies its own signal.
  * `nested` is offered only to a definition that asks to delegate, and only while depth remains.
  */
-export function bridgeTools(agent: AgentDefinition, ctx: ExtensionToolContext, nested?: NestedDelegation): ToolRegistration[] {
+export function bridgeTools(agent: AgentDefinition, ctx: ExtensionToolContext, nested?: NestedDelegation,
+  workspace?: { cwd: string }, builtinTools: ReadonlySet<string> = new Set(),
+  declaredWorkspaceIndependent: ReadonlySet<string> = new Set()): ToolRegistration[] {
   const { tools } = selectTools(agent, ctx.tools.map((tool) => tool.name));
-  const registrations = tools.map((name) => {
+  const registrations = tools.filter((name) => !workspace ||
+    ((name === "bash" || name === "read") && builtinTools.has(name)) || declaredWorkspaceIndependent.has(name)).map((name) => {
     const source = ctx.tools.find((tool) => tool.name === name)!;
     return defineTool({
       name, description: source.description, parameters: source.parameters,
@@ -45,10 +66,10 @@ export function bridgeTools(agent: AgentDefinition, ctx: ExtensionToolContext, n
       replay: "unsafe",
       executionMode: "sequential",
       execute: async (args, api, context) => {
-        const result = await ctx.executeTool(name, args, {
+        const shouldBindBuiltin = workspace && builtinTools.has(name) && (name === "bash" || name === "read");
+        const result = await ctx.executeTool(name, shouldBindBuiltin ? bindWorkspaceArguments(name, args as Record<string, unknown>, workspace.cwd) : args, {
           signal: context.abortSignal,
           onUpdate: (update) => {
-            // Keep details/output bounded by Durable, rather than persisting arbitrary extension internals.
             const text = update.content.filter((part) => part.type === "text").map((part) => part.text).join("\n");
             if (text) api.output(text.slice(-4096));
           },
