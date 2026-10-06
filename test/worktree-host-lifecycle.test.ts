@@ -11,6 +11,7 @@ import { type Context } from "@earendil-works/pi-ai";
 import { fauxProvider, fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import extension from "../index.ts";
 import type { Run } from "../runtime.ts";
+import { cleanupWorktreeHostFixture, initializeWorktreeHostRepo } from "./fixtures/worktree-host.ts";
 
 const run = promisify(execFile);
 const agents = fileURLToPath(new URL("./fixtures/agents/", import.meta.url));
@@ -30,9 +31,7 @@ test("a worktree Follow-up retains its conversation and performs relative reads 
   const followupsIssued = new Set<string>();
   let childGenerations = 0;
   try {
-    await run("git", ["init", "-q", repo]);
-    await run("git", ["-C", repo, "config", "user.email", "test@example.invalid"]);
-    await run("git", ["-C", repo, "config", "user.name", "Test"]);
+    await initializeWorktreeHostRepo(repo);
     await writeFile(join(repo, "base.txt"), "committed checkout value\n");
     await run("git", ["-C", repo, "add", "base.txt"]);
     await run("git", ["-C", repo, "commit", "-qm", "requested base"]);
@@ -147,11 +146,7 @@ test("a worktree Follow-up retains its conversation and performs relative reads 
     if (previous.agents === undefined) delete process.env.PI_SUBAGENT_AGENTS; else process.env.PI_SUBAGENT_AGENTS = previous.agents;
     if (previous.storage === undefined) delete process.env.PI_SUBAGENT_STORAGE; else process.env.PI_SUBAGENT_STORAGE = previous.storage;
     try { session?.dispose?.(); } catch {}
-    try { await run("git", ["-C", repo, "worktree", "prune"]); } catch {}
-    await rm(worktrees, { recursive: true, force: true });
-    await rm(store, { recursive: true, force: true });
-    await rm(harness, { recursive: true, force: true });
-    await rm(repo, { recursive: true, force: true });
+    await cleanupWorktreeHostFixture({ repo, harness, store, worktrees });
   }
 });
 
@@ -174,9 +169,7 @@ test("allowance Continuation retains the assigned worktree and does not repeat a
   let childBashStarted!: () => void;
   const bashStarted = new Promise<void>(resolve => { childBashStarted = resolve; });
   try {
-    await run("git", ["init", "-q", repo]);
-    await run("git", ["-C", repo, "config", "user.email", "test@example.invalid"]);
-    await run("git", ["-C", repo, "config", "user.name", "Test"]);
+    await initializeWorktreeHostRepo(repo);
     await writeFile(join(repo, "base.txt"), "committed base\n");
     await run("git", ["-C", repo, "add", "base.txt"]);
     await run("git", ["-C", repo, "commit", "-qm", "requested base"]);
@@ -271,11 +264,7 @@ test("allowance Continuation retains the assigned worktree and does not repeat a
     if (previous.agents === undefined) delete process.env.PI_SUBAGENT_AGENTS; else process.env.PI_SUBAGENT_AGENTS = previous.agents;
     if (previous.storage === undefined) delete process.env.PI_SUBAGENT_STORAGE; else process.env.PI_SUBAGENT_STORAGE = previous.storage;
     try { session?.dispose?.(); } catch {}
-    try { await run("git", ["-C", repo, "worktree", "prune"]); } catch {}
-    await rm(worktrees, { recursive: true, force: true });
-    await rm(store, { recursive: true, force: true });
-    await rm(harness, { recursive: true, force: true });
-    await rm(repo, { recursive: true, force: true });
+    await cleanupWorktreeHostFixture({ repo, harness, store, worktrees });
   }
 });
 
@@ -305,9 +294,7 @@ test("approved worktree Recovery uses current permissions, keeps uncertain effec
   let cancelRunId = "";
   const pendingParentActions = new Set<string>();
   try {
-    await run("git", ["init", "-q", repo]);
-    await run("git", ["-C", repo, "config", "user.email", "test@example.invalid"]);
-    await run("git", ["-C", repo, "config", "user.name", "Test"]);
+    await initializeWorktreeHostRepo(repo);
     await writeFile(join(repo, "base.txt"), "committed recovery base\n");
     await run("git", ["-C", repo, "add", "base.txt"]);
     await run("git", ["-C", repo, "commit", "-qm", "requested base"]);
@@ -480,10 +467,6 @@ test("approved worktree Recovery uses current permissions, keeps uncertain effec
     if (session) { await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" }); session.dispose(); }
     if (previous.agents === undefined) delete process.env.PI_SUBAGENT_AGENTS; else process.env.PI_SUBAGENT_AGENTS = previous.agents;
     if (previous.storage === undefined) delete process.env.PI_SUBAGENT_STORAGE; else process.env.PI_SUBAGENT_STORAGE = previous.storage;
-    try { await run("git", ["-C", repo, "worktree", "prune"]); } catch {}
-    await rm(worktrees, { recursive: true, force: true });
-    await rm(store, { recursive: true, force: true });
-    await rm(harness, { recursive: true, force: true });
-    await rm(repo, { recursive: true, force: true });
+    await cleanupWorktreeHostFixture({ repo, harness, store, worktrees });
   }
 });

@@ -3,6 +3,8 @@ import { createModels, type Models } from "@earendil-works/pi-ai";
 import type { ExtensionToolContext, ModelRegistry } from "@earendil-works/pi-coding-agent";
 import { defineTool, type ToolRegistration } from "@earendil-works/pi-durable";
 import { isAbsolute, resolve } from "node:path";
+import { homedir } from "node:os";
+import { fileURLToPath } from "node:url";
 import type { AgentDefinition } from "./agents.ts";
 import { selectTools } from "./agents.ts";
 
@@ -10,6 +12,11 @@ type ToolDefinition = Parameters<typeof defineTool>[0];
 
 /** Exact namespace instruction that explicitly opts an extension tool into worktree use. */
 export const WORKSPACE_INDEPENDENT_TOOL_INSTRUCTION = "pi-durable-subagent: workspace-independent";
+
+/** A Pi builtin is bindable only under its own exact source identity, never by namespace prefix. */
+export function coreBuiltinToolNames(tools: readonly { name: string; sourceInfo: { path: string } }[]): ReadonlySet<string> {
+  return new Set(tools.filter(tool => tool.sourceInfo.path === `builtin:${tool.name}`).map(tool => tool.name));
+}
 
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
@@ -19,16 +26,30 @@ function bindWorkspaceArguments(name: string, args: Record<string, unknown>, cwd
   const bound = { ...args };
   if (name === "bash" && typeof bound.command === "string") {
     bound.command = `(cd -- ${shellQuote(cwd)} && {\n${bound.command}\n})`;
-  } else if ((name === "read" || name === "write" || name === "edit") && typeof bound.path === "string" && !isAbsolute(bound.path)) {
-    bound.path = resolve(cwd, bound.path);
+  } else if ((name === "read" || name === "write" || name === "edit") && typeof bound.path === "string") {
+    bound.path = resolvePiPath(bound.path, cwd);
   } else if (["grep", "find", "ls"].includes(name)) {
     // These Pi built-ins resolve omitted scopes from the host cwd. Make the
     // effective scope explicit before entering Pi's normal validation/hooks.
     const scope = bound.path;
-    if (typeof scope !== "string" || !scope) bound.path = cwd;
-    else if (!isAbsolute(scope)) bound.path = resolve(cwd, scope);
+    if (scope === undefined || scope === "") bound.path = cwd;
+    else if (typeof scope === "string") bound.path = resolvePiPath(scope, cwd);
   }
   return bound;
+}
+
+/** Match Pi 1.0's normalizePath/resolvePath rules before selecting the child's base directory. */
+function resolvePiPath(input: string, cwd: string): string {
+  let normalized = input.replace(/[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g, " ");
+  if (normalized.startsWith("@")) normalized = normalized.slice(1);
+  if (process.platform === "win32" && normalized.startsWith("/") && !normalized.startsWith("//") && !normalized.includes("\\")) {
+    const match = normalized.match(/^\/(?:mnt\/|cygdrive\/)?([a-z])(?:\/(.*))?$/i);
+    if (match) normalized = `${match[1]!.toUpperCase()}:\\${match[2]?.replaceAll("/", "\\") ?? ""}`;
+  }
+  if (normalized === "~") normalized = homedir();
+  else if (normalized.startsWith("~/")) normalized = resolve(homedir(), normalized.slice(2));
+  if (/^file:\/\//.test(normalized)) normalized = fileURLToPath(normalized);
+  return isAbsolute(normalized) ? resolve(normalized) : resolve(cwd, normalized);
 }
 
 export interface NestedResult {

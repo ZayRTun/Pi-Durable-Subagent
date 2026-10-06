@@ -9,7 +9,9 @@ import { test } from "node:test";
 import { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
 import { fauxProvider, fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
+import { coreBuiltinToolNames, WORKSPACE_INDEPENDENT_TOOL_INSTRUCTION } from "../adapters.ts";
 import extension from "../index.ts";
+import { cleanupWorktreeHostFixture, initializeWorktreeHostRepo } from "./fixtures/worktree-host.ts";
 
 const run = promisify(execFile);
 const agentDirectory = fileURLToPath(new URL("./fixtures/agents/", import.meta.url));
@@ -24,15 +26,14 @@ test("real Pi delegated discovery and search tools use the assigned checkout for
   process.env.PI_SUBAGENT_AGENTS = agents;
   process.env.PI_SUBAGENT_STORAGE = store;
   const hostInputs: Array<{ name: string; input: Record<string, unknown> }> = [];
-  const parentInputs: Array<{ name: string; input: Record<string, unknown> }> = [];
   let unboundCalls = 0;
+  const independentCalls: string[] = [];
+  const sourceInfo: Array<{ name: string; path: string }> = [];
   let session: Awaited<ReturnType<typeof createAgentSession>>["session"] | undefined;
   try {
     await mkdir(agents, { recursive: true });
-    await writeFile(join(agents, "searcher.md"), "---\nname: searcher\ndescription: Search fixture\ntools: grep, find, ls, fffind\nthinking: low\ntimeoutMinutes: 30\n---\nUse the available discovery tools and report any missing capability.\n");
-    await run("git", ["init", "-q", repo]);
-    await run("git", ["-C", repo, "config", "user.email", "test@example.invalid"]);
-    await run("git", ["-C", repo, "config", "user.name", "Test"]);
+    await writeFile(join(agents, "searcher.md"), "---\nname: searcher\ndescription: Search fixture\ntools: read, grep, find, ls, fffind, fffind_safe\nthinking: low\ntimeoutMinutes: 30\n---\nUse the available discovery tools and report any missing capability.\n");
+    await initializeWorktreeHostRepo(repo);
     await mkdir(join(repo, "search"));
     await writeFile(join(repo, "search", "evidence.txt"), "CHECKOUT_ONLY_NEEDLE\n");
     await writeFile(join(repo, "tracked.txt"), "committed base value\n");
@@ -42,84 +43,68 @@ test("real Pi delegated discovery and search tools use the assigned checkout for
     await writeFile(join(repo, "parent-only.txt"), "PARENT_ONLY_NEEDLE\n");
 
     const faux = fauxProvider();
-    faux.setResponses([
-      fauxAssistantMessage([fauxToolCall("subagent", { agent: "searcher", task: "Use grep, find, and ls with explicit and omitted scopes. Report unavailable tools.", worktree: true }, { id: "search-binding" })], { stopReason: "toolUse" }),
-      (context) => {
-        const tools = context.messages.find((message) => message.role === "system")?.toolsAdded ?? [];
-        for (const name of ["grep", "find", "ls"]) assert.ok(tools.some((tool) => tool.name === name), `${name} should be available: ${JSON.stringify(tools.map(tool => tool.name))}`);
-        assert.ok(!tools.some((tool) => tool.name === "fffind"), "workspace-sensitive extension tools without binding must be omitted");
-        assert.match(JSON.stringify(context.messages), /Unavailable declared tools: fffind/);
-        return fauxAssistantMessage([fauxToolCall("grep", { pattern: "CHECKOUT_ONLY_NEEDLE", path: "search", literal: true }, { id: "grep-explicit" })], { stopReason: "toolUse" });
-      },
-      (context) => {
-        const result = context.messages.findLast((message) => message.role === "toolResult");
-        assert.ok(result && result.role === "toolResult" && !result.isError, JSON.stringify(result));
-        assert.match(result.content.map(part => part.type === "text" ? part.text : "").join("\n"), /evidence\.txt:1: CHECKOUT_ONLY_NEEDLE/);
-        return fauxAssistantMessage([fauxToolCall("grep", { pattern: "CHECKOUT_ONLY_NEEDLE", literal: true }, { id: "grep-omitted" })], { stopReason: "toolUse" });
-      },
-      (context) => {
-        const result = context.messages.findLast((message) => message.role === "toolResult");
-        assert.ok(result && result.role === "toolResult" && !result.isError, JSON.stringify(result));
-        assert.match(result.content.map(part => part.type === "text" ? part.text : "").join("\n"), /evidence\.txt:1: CHECKOUT_ONLY_NEEDLE/);
-        return fauxAssistantMessage([fauxToolCall("find", { pattern: "*.txt", path: "search" }, { id: "find-explicit" })], { stopReason: "toolUse" });
-      },
-      (context) => {
-        const result = context.messages.findLast((message) => message.role === "toolResult");
-        assert.ok(result && result.role === "toolResult" && !result.isError, JSON.stringify(result));
-        assert.equal(result.content.map(part => part.type === "text" ? part.text : "").join("\n"), "evidence.txt");
-        return fauxAssistantMessage([fauxToolCall("find", { pattern: "parent-only.txt" }, { id: "find-omitted" })], { stopReason: "toolUse" });
-      },
-      (context) => {
-        const result = context.messages.findLast((message) => message.role === "toolResult");
-        assert.ok(result && result.role === "toolResult" && !result.isError, JSON.stringify(result));
-        assert.equal(result.content.map(part => part.type === "text" ? part.text : "").join("\n"), "No files found matching pattern");
-        return fauxAssistantMessage([fauxToolCall("ls", { path: "search" }, { id: "ls-explicit" })], { stopReason: "toolUse" });
-      },
-      (context) => {
-        const result = context.messages.findLast((message) => message.role === "toolResult");
-        assert.ok(result && result.role === "toolResult" && !result.isError, JSON.stringify(result));
-        assert.match(result.content.map(part => part.type === "text" ? part.text : "").join("\n"), /evidence\.txt/);
-        return fauxAssistantMessage([fauxToolCall("ls", {}, { id: "ls-omitted" })], { stopReason: "toolUse" });
-      },
-      (context) => {
-        const result = context.messages.findLast((message) => message.role === "toolResult");
-        assert.ok(result && result.role === "toolResult" && !result.isError, JSON.stringify(result));
-        const listing = result.content.map(part => part.type === "text" ? part.text : "").join("\n");
-        assert.doesNotMatch(listing, /parent-only\.txt/);
+    let grepCalls = 0;
+    let findCalls = 0;
+    let lsCalls = 0;
+    faux.setResponses(Array.from({ length: 30 }, () => (context) => {
+      const system = context.messages.find((message) => message.role === "system");
+      const isParent = system?.toolsAdded?.some((tool) => tool.name === "subagent");
+      const previous = context.messages.findLast((message) => message.role === "toolResult");
+      if (isParent) {
+        if (previous?.toolName === "subagent") return fauxAssistantMessage("Parent received the child result.");
+        return fauxAssistantMessage([fauxToolCall("subagent", { agent: "searcher", task: "Use grep, find, and ls with explicit and omitted scopes. Report unavailable tools.", worktree: true }, { id: "search-binding" })], { stopReason: "toolUse" });
+      }
+      const transcript = JSON.stringify(context.messages);
+      const tools = system?.toolsAdded ?? [];
+      for (const name of ["grep", "find", "ls"]) assert.ok(tools.some((tool) => tool.name === name), `${name} should be available: ${JSON.stringify(tools.map(tool => tool.name))}`);
+      assert.ok(!tools.some((tool) => tool.name === "fffind"), "workspace-sensitive extension tools without binding must be omitted");
+      if (transcript.includes('"name":"fffind"')) return fauxAssistantMessage([fauxText("The unavailable fffind capability was not used; supported searches were scoped to this checkout.")]);
+      if (!previous) return fauxAssistantMessage([fauxToolCall("grep", { pattern: "CHECKOUT_ONLY_NEEDLE", path: "search", literal: true }, { id: "grep-explicit" })], { stopReason: "toolUse" });
+      assert.equal(previous.isError, false, JSON.stringify(previous));
+      const output = previous.content.map(part => part.type === "text" ? part.text : "").join("\n");
+      if (previous.toolName === "grep") {
+        assert.match(output, /evidence\.txt:1: CHECKOUT_ONLY_NEEDLE/);
+        grepCalls++;
+        return grepCalls === 1
+          ? fauxAssistantMessage([fauxToolCall("grep", { pattern: "CHECKOUT_ONLY_NEEDLE", literal: true }, { id: "grep-omitted" })], { stopReason: "toolUse" })
+          : fauxAssistantMessage([fauxToolCall("find", { pattern: "*.txt", path: "search" }, { id: "find-explicit" })], { stopReason: "toolUse" });
+      }
+      if (previous.toolName === "find") {
+        findCalls++;
+        assert.equal(output, findCalls === 1 ? "evidence.txt" : "No files found matching pattern");
+        return findCalls === 1
+          ? fauxAssistantMessage([fauxToolCall("find", { pattern: "parent-only.txt" }, { id: "find-omitted" })], { stopReason: "toolUse" })
+          : fauxAssistantMessage([fauxToolCall("ls", { path: "search" }, { id: "ls-explicit" })], { stopReason: "toolUse" });
+      }
+      if (previous.toolName === "ls") {
+        lsCalls++;
+        if (lsCalls === 1) {
+          assert.match(output, /evidence\.txt/);
+          return fauxAssistantMessage([fauxToolCall("ls", {}, { id: "ls-omitted" })], { stopReason: "toolUse" });
+        }
+        assert.doesNotMatch(output, /parent-only\.txt/);
+        return fauxAssistantMessage([fauxToolCall("fffind_safe", { path: "relative-looking/path" }, { id: "independent-extension" })], { stopReason: "toolUse" });
+      }
+      if (previous.toolName === "fffind_safe") {
+        assert.equal(output, "same:relative-looking/path", "explicitly workspace-independent extension arguments remain unchanged");
         return fauxAssistantMessage([fauxToolCall("fffind", { path: "parent-only.txt" }, { id: "unsupported-fffind" })], { stopReason: "toolUse" });
-      },
-      (context) => {
-        const result = context.messages.findLast((message) => message.role === "toolResult");
-        assert.ok(result && result.role === "toolResult" && result.isError, "an unavailable capability should fail visibly when requested");
-        assert.match(JSON.stringify(result.content), /fffind|tool|not available|not found/i);
-        return fauxAssistantMessage([fauxToolCall("grep", { pattern: "PARENT_ONLY_NEEDLE", path: repo, literal: true }, { id: "grep-absolute" })], { stopReason: "toolUse" });
-      },
-      (context) => {
-        const result = context.messages.findLast((message) => message.role === "toolResult");
-        assert.ok(result && result.role === "toolResult" && !result.isError, JSON.stringify(result));
-        assert.match(result.content.map(part => part.type === "text" ? part.text : "").join("\n"), /parent-only\.txt:1: PARENT_ONLY_NEEDLE/);
-        return fauxAssistantMessage([fauxText("All supported searches used the assigned checkout; unavailable extension search was not invoked.")]);
-      },
-      fauxAssistantMessage([fauxToolCall("grep", { pattern: "PARENT_MODIFIED_NEEDLE", literal: true }, { id: "parent-grep" })], { stopReason: "toolUse" }),
-      (context) => {
-        const result = context.messages.findLast((message) => message.role === "toolResult");
-        assert.ok(result && result.role === "toolResult" && !result.isError, JSON.stringify(result));
-        assert.match(result.content.map(part => part.type === "text" ? part.text : "").join("\n"), /tracked\.txt:1: PARENT_MODIFIED_NEEDLE/);
-        return fauxAssistantMessage([fauxText("The isolated discovery checks passed.")]);
-      },
-    ]);
+      }
+      throw new Error(`Unexpected child tool result: ${previous.toolName}`);
+    }));
 
     const modelRuntime = await ModelRuntime.create({ authPath: join(harness, "auth.json"), modelsPath: null, modelsStorePath: join(harness, "models.json"), refreshOnCreate: false });
     modelRuntime.registerNativeProvider(faux.provider);
-    const settingsManager = SettingsManager.inMemory({ defaultTools: ["bash", "read", "grep", "find", "ls", "subagent", "fffind"] });
+    const settingsManager = SettingsManager.inMemory({ defaultTools: ["bash", "grep", "find", "ls", "subagent", "fffind", "fffind_safe"] });
     const loader = new DefaultResourceLoader({ cwd: repo, agentDir: repo, settingsManager,
       noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true,
       extensionFactories: [(pi) => {
         pi.registerTool({ name: "fffind", label: "Optional search", exposure: "codemode", description: "Workspace-sensitive unsupported fixture", parameters: Type.Object({ path: Type.String() }),
           execute: async () => { unboundCalls++; return { content: [{ type: "text", text: "wrong parent result" }], details: undefined }; } });
+        pi.registerTool({ name: "fffind_safe", label: "Independent fixture", exposure: "codemode", namespace: { name: "independent-fixture", instructions: WORKSPACE_INDEPENDENT_TOOL_INSTRUCTION }, description: "Explicitly workspace-independent fixture", parameters: Type.Object({ path: Type.String() }),
+          execute: async (_id, args) => { independentCalls.push(args.path); return { content: [{ type: "text", text: `same:${args.path}` }], details: undefined }; } });
         pi.on("tool_call", (event) => {
+          if (sourceInfo.length === 0) sourceInfo.push(...pi.getAllTools().map(tool => ({ name: tool.name, path: tool.sourceInfo.path })));
           if (event.parentToolCallId && ["grep", "find", "ls"].includes(event.toolName)) hostInputs.push({ name: event.toolName, input: { ...event.input } });
-          if (!event.parentToolCallId && event.toolName === "grep") parentInputs.push({ name: event.toolName, input: { ...event.input } });
         });
       }, extension],
     });
@@ -131,30 +116,32 @@ test("real Pi delegated discovery and search tools use the assigned checkout for
 
     const delegation = session.messages.find((message) => message.role === "toolResult" && message.toolName === "subagent");
     assert.ok(delegation && delegation.role === "toolResult");
-    assert.equal(delegation.isError, false, JSON.stringify(delegation.content));
+    assert.equal(delegation.isError, true, JSON.stringify(delegation.content));
+    assert.equal(sourceInfo.find(tool => tool.name === "grep")?.path, "builtin:grep", `the core tool uses its exact Pi builtin identity: ${JSON.stringify(sourceInfo)}`);
+    assert.ok(!sourceInfo.find(tool => tool.name === "fffind")?.path?.startsWith("builtin:"), "the fixture extension is not core merely because of its tool name");
+    assert.deepEqual([...coreBuiltinToolNames([
+      { name: "bash", sourceInfo: { path: "builtin:bash" } },
+      { name: "read", sourceInfo: { path: "builtin:search-extension" } },
+    ])], ["bash"], "a builtin extension source that replaces read is not trusted as Pi's core read tool");
     const report = (delegation.details as { output?: string } | undefined)?.output;
-    assert.match(report ?? "", /unavailable extension search was not invoked/);
+    assert.match(JSON.stringify(delegation.content), /Task blocked: attempted unavailable workspace capability fffind/);
+    assert.doesNotMatch(report ?? "", /unavailable extension search was not invoked/);
     assert.equal(unboundCalls, 0);
-    assert.equal(parentInputs.length, 1);
-    assert.equal(parentInputs[0].input.path, undefined, "parent scope keeps Pi's normal default");
-    assert.deepEqual(hostInputs.map(({ name }) => name), ["grep", "grep", "find", "find", "ls", "ls", "grep"]);
+    assert.deepEqual(independentCalls, ["relative-looking/path"]);
+    assert.deepEqual((delegation.details as { unavailable: string[] }).unavailable.sort(), ["fffind", "read"]);
+    assert.deepEqual(hostInputs.map(({ name }) => name), ["grep", "grep", "find", "find", "ls", "ls"]);
     const isolatedInputs = hostInputs.slice(0, 6);
     for (const { input } of isolatedInputs) {
       const path = input.path;
       assert.equal(typeof path, "string");
       assert.ok((path as string).includes("-worktrees/") && !(path as string).startsWith(repo), JSON.stringify(hostInputs));
     }
-    assert.equal(hostInputs[6].input.path, repo, "explicit absolute search scopes preserve host-policy semantics");
     assert.equal(await readFile(join(repo, "tracked.txt"), "utf8"), "PARENT_MODIFIED_NEEDLE\n");
     assert.equal(await readFile(join(repo, "parent-only.txt"), "utf8"), "PARENT_ONLY_NEEDLE\n");
   } finally {
     if (previous.agents === undefined) delete process.env.PI_SUBAGENT_AGENTS; else process.env.PI_SUBAGENT_AGENTS = previous.agents;
     if (previous.storage === undefined) delete process.env.PI_SUBAGENT_STORAGE; else process.env.PI_SUBAGENT_STORAGE = previous.storage;
     try { session?.dispose?.(); } catch {}
-    try { await run("git", ["-C", repo, "worktree", "prune"]); } catch {}
-    await rm(worktrees, { recursive: true, force: true });
-    await rm(store, { recursive: true, force: true });
-    await rm(harness, { recursive: true, force: true });
-    await rm(repo, { recursive: true, force: true });
+    await cleanupWorktreeHostFixture({ repo, harness, store, worktrees });
   }
 });

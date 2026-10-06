@@ -9,6 +9,7 @@ import { test } from "node:test";
 import { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { fauxProvider, fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import extension from "../index.ts";
+import { cleanupWorktreeHostFixture, initializeWorktreeHostRepo } from "./fixtures/worktree-host.ts";
 
 const run = promisify(execFile);
 const agentDirectory = fileURLToPath(new URL("./fixtures/agents/", import.meta.url));
@@ -26,9 +27,7 @@ test("a real Pi delegated write and edit mutate only the assigned worktree and p
   let worktree: string | undefined;
   let session: Awaited<ReturnType<typeof createAgentSession>>["session"] | undefined;
   try {
-    await run("git", ["init", "-q", repo]);
-    await run("git", ["-C", repo, "config", "user.email", "test@example.invalid"]);
-    await run("git", ["-C", repo, "config", "user.name", "Test"]);
+    await initializeWorktreeHostRepo(repo);
     await writeFile(join(repo, "tracked.txt"), "committed base value\n");
     await run("git", ["-C", repo, "add", "tracked.txt"]);
     await run("git", ["-C", repo, "commit", "-qm", "requested base"]);
@@ -120,10 +119,6 @@ test("a real Pi delegated write and edit mutate only the assigned worktree and p
     if (previous.agents === undefined) delete process.env.PI_SUBAGENT_AGENTS; else process.env.PI_SUBAGENT_AGENTS = previous.agents;
     if (previous.storage === undefined) delete process.env.PI_SUBAGENT_STORAGE; else process.env.PI_SUBAGENT_STORAGE = previous.storage;
     try { session?.dispose?.(); } catch {}
-    try { await run("git", ["-C", repo, "worktree", "prune"]); } catch {}
-    await rm(worktrees, { recursive: true, force: true });
-    await rm(store, { recursive: true, force: true });
-    await rm(harness, { recursive: true, force: true });
-    await rm(repo, { recursive: true, force: true });
+    await cleanupWorktreeHostFixture({ repo, harness, store, worktrees });
   }
 });
