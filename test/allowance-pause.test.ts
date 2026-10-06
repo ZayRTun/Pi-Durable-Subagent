@@ -5,11 +5,11 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { Type, createModels, type Context } from "@earendil-works/pi-ai";
-import { fauxProvider, fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
+import { fauxProvider, fauxAssistantMessage, fauxToolCall, fauxText } from "@earendil-works/pi-ai/providers/faux";
 import { Runtime, runId, type Run } from "../runtime.ts";
 import extension from "../index.ts";
 
-for (const outcome of ["handoff", "continuation", "escalation", "handoff-tool", "permanent-error", "cancel", "shutdown"] as const) {
+for (const outcome of ["handoff", "compact-continuation", "continuation", "escalation", "handoff-tool", "permanent-error", "cancel", "shutdown"] as const) {
 test(`host allowance boundary: ${outcome}`, async () => {
     const directory = await mkdtemp(join(tmpdir(), "durable-policy-"));
     const policy = { agent: 1, parent: 1, effective: 1 };
@@ -24,23 +24,23 @@ test(`host allowance boundary: ${outcome}`, async () => {
     try {
       await mkdir(join(directory, "agents"));
       await writeFile(join(directory, "agents", "worker.md"), `---\nname: worker\ndescription: Policy fixture\ntools: [policy_work]\n${policy.agent === undefined ? "" : `timeoutMinutes: ${policy.agent}\n`}---\nComplete the work.\n`);
-      const faux = fauxProvider();
+      const faux = fauxProvider({tokenSize:{min:1000000,max:1000000}});
       faux.setResponses([
-        fauxAssistantMessage([fauxToolCall("subagent", { agent: "worker", task: "Produce evidence.", ...(policy.parent !== undefined ? { timeoutMinutes: policy.parent } : {}) })], { stopReason: "toolUse" }),
-        fauxAssistantMessage([fauxToolCall("policy_work", {}), fauxToolCall("policy_work", {})], { stopReason: "toolUse" }),
+        fauxAssistantMessage([fauxToolCall("subagent", { agent: "worker", task: "Produce evidence." + (outcome === "compact-continuation" ? "T".repeat(190000) : ""), ...(policy.parent !== undefined ? { timeoutMinutes: policy.parent } : {}) })], { stopReason: "toolUse" }),
+        fauxAssistantMessage([...(outcome === "compact-continuation" ? [fauxText("Useful work reasoning. " + "R".repeat(200000))] : []), fauxToolCall("policy_work", {}), fauxToolCall("policy_work", {})], { stopReason: "toolUse" }),
         fauxAssistantMessage("Work stopped."),
         ...(outcome === "permanent-error" ? [fauxAssistantMessage([], { stopReason: "error", errorMessage: "400 Permanent handoff failure" })] : [(context: Context) => {
           assert.deepEqual(context.tools ?? [], [], "handoff exposes no work tools");
           return outcome === "handoff-tool"
             ? fauxAssistantMessage([fauxToolCall("policy_work", {})], { stopReason: "toolUse" })
-            : fauxAssistantMessage("Checkpoint: evidence written. Remaining: second change.");
+            : fauxAssistantMessage("Checkpoint: evidence written. Remaining: second change." + (outcome === "compact-continuation" ? "H".repeat(85000) : ""));
         }]),
         ...(outcome === "handoff-tool" ? [fauxAssistantMessage("Checkpoint: evidence written. Remaining: second change.")] : []),
         fauxAssistantMessage("Parent completed."),
       ]);
       const modelRuntime = await ModelRuntime.create({ authPath: join(directory, "auth.json"), modelsPath: null, modelsStorePath: join(directory, "models.json"), refreshOnCreate: false });
       modelRuntime.registerNativeProvider(faux.provider);
-      const settingsManager = SettingsManager.inMemory({ defaultTools: ["subagent"] });
+      const settingsManager = SettingsManager.inMemory({ defaultTools: ["subagent", "subagent_compact"], compaction: { enabled: false } });
       const loader = new DefaultResourceLoader({ cwd: directory, agentDir: directory, settingsManager,
         noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true,
         extensionFactories: [extension, pi => pi.registerTool({ name: "policy_work", label: "Policy work", description: "Write observable evidence", parameters: Type.Object({}),
@@ -52,7 +52,7 @@ test(`host allowance boundary: ${outcome}`, async () => {
               const workTimer = originalTimer(() => { signal?.removeEventListener("abort", abort); resolve(); }, outcome === "cancel" || outcome === "shutdown" ? 10000 : 100);
             });
             await writeFile(join(directory, "evidence.txt"), "useful work finished");
-            return { content: [{ type: "text", text: "Evidence written." }], details: undefined };
+            return { content: [{ type: "text", text: "Evidence written." + (outcome === "compact-continuation" && workCalls===1 ? "W".repeat(200000) : "") }], details: undefined };
           } })],
       });
       await loader.reload();
@@ -96,8 +96,17 @@ test(`host allowance boundary: ${outcome}`, async () => {
       const run = result.details as unknown as Run;
       assert.equal(run.status, "paused");
       if (outcome === "permanent-error") assert.match(run.handoffLimitation!, /400 Permanent handoff failure/);
-      else assert.equal(run.handoff, "Checkpoint: evidence written. Remaining: second change.");
-      if (outcome === "continuation" || outcome === "escalation") {
+      else assert.ok(run.handoff?.startsWith("Checkpoint: evidence written. Remaining: second change."));
+      if (outcome === "continuation" || outcome === "escalation" || outcome === "compact-continuation") {
+        let compactTokens = 0;
+        if (outcome === "compact-continuation") {
+          faux.setResponses([fauxAssistantMessage([fauxToolCall("subagent_compact", {run:run.id})], {stopReason:"toolUse"}), fauxAssistantMessage("Evidence written. Preserve completed work; remaining second change."), fauxAssistantMessage("Compacted.")]);
+          await session.prompt("Explicitly compact retained idle conversation.");
+          const compacted = session.messages.findLast(m=>m.role==="toolResult"&&m.toolName==="subagent_compact");
+          assert.ok(compacted?.role==="toolResult"); const detail=compacted.details as unknown as Run;
+          assert.equal(detail.compactions!.at(-1)!.outcome,"applied");compactTokens=detail.compactions!.at(-1)!.usage.totalTokens;
+          assert.equal(detail.usage!.totalTokens,run.usage!.totalTokens);
+        }
         if (outcome === "escalation") {
           // Retained fixture represents two prior pauses without another completed work tool.
           const record = join(directory, "runs", run.id, "run.json");
@@ -133,6 +142,7 @@ test(`host allowance boundary: ${outcome}`, async () => {
         assert.equal(final.timeoutMinutes, null);
         assert.equal(workCalls, 2, "only the single new continuation tool runs; completed original calls are not replayed");
         assert.equal(resumed.usage!.totalTokens, final.usage!.totalTokens - before);
+        if(outcome === "compact-continuation") assert.ok(final.usage!.totalTokens-before < compactTokens,`continuation ${final.usage!.totalTokens-before} excludes compaction ${compactTokens}`);
         return;
       }
       const inspector = new Runtime(join(directory, "runs"));
